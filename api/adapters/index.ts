@@ -1,5 +1,5 @@
-import { generateJimengT2I } from "./jimeng_t2i.js";
-import { generateGPTImage } from "./gpt_image_1.js";
+import { generateJimengT2I } from "./jimeng_t2i";
+import { generateGPTImage } from "./gpt_image_1";
 
 export async function dispatchGenerate(model: string, payload: any, apiKey?: string) {
   if (model === "jimeng-t2i") {

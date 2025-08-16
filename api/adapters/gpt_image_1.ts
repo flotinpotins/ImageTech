@@ -1,5 +1,4 @@
-import FormData from 'form-data';
-import fetch from 'node-fetch';
+// 使用内置的 fetch 和 FormData
 
 export type GPTImageParams = {
   prompt: string;

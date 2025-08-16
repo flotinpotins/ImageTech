@@ -177,7 +177,7 @@ export async function createTask(request: CreateTaskRequest, apiKey?: string): P
   
   // 如果提供了API Key，添加到请求头
   if (apiKey) {
-    headers['X-API-Key'] = apiKey;
+    headers['x-api-key'] = apiKey;
   }
   
   const response = await fetch('/api/tasks', {
@@ -194,7 +194,7 @@ export async function createTask(request: CreateTaskRequest, apiKey?: string): P
 }
 
 export async function getTask(taskId: string): Promise<GetTaskResponse> {
-  const response = await fetch(`/api/tasks/${taskId}`);
+  const response = await fetch(`/api/tasks?taskId=${encodeURIComponent(taskId)}`);
   
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
