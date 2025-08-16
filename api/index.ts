@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import routes from "../server/src/routes/tasks";
+import routes from "./routes/tasks.js";
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import dotenv from "dotenv";
 
