@@ -6,20 +6,29 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const app = Fastify({ 
-  logger: false, // 在Vercel中禁用日志
-  bodyLimit: 50 * 1024 * 1024 // 50MB 请求体限制
-});
+let app: any = null;
 
-await app.register(cors, {
-  origin: true,
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-api-key"],
-});
+async function createApp() {
+  if (app) return app;
+  
+  app = Fastify({ 
+    logger: false, // 在Vercel中禁用日志
+    bodyLimit: 50 * 1024 * 1024 // 50MB 请求体限制
+  });
 
-await app.register(routes);
+  await app.register(cors, {
+    origin: true,
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-api-key"],
+  });
+
+  await app.register(routes);
+  await app.ready();
+  
+  return app;
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  await app.ready();
-  app.server.emit('request', req, res);
+  const fastifyApp = await createApp();
+  fastifyApp.server.emit('request', req, res);
 }
