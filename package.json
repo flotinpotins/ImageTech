@@ -10,6 +10,9 @@
     "preview": "vite preview",
     "check": "npx tsc --noEmit"
   },
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-progress": "^1.0.3",
