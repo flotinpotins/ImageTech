@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { FastifyReply, FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import dotenv from "dotenv";
@@ -42,7 +42,7 @@ async function createApp() {
       .optional(),
   });
 
-  app.post("/api/tasks", async (req, res) => {
+  app.post("/api/tasks", async (req: FastifyRequest, res: FastifyReply) => {
     const parse = CreateSchema.safeParse(req.body);
     if (!parse.success) {
       return res.status(400).send(parse.error.flatten());
@@ -62,7 +62,7 @@ async function createApp() {
     }
   });
 
-  app.get("/api/tasks/:id", async (req, res) => {
+  app.get("/api/tasks/:id", async (req: FastifyRequest, res: FastifyReply) => {
     const id = (req.params as any)?.id as string;
     const t = tasks.get(id);
     if (!t) return res.status(404).send("not found");
