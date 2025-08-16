@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片上传调试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            margin: 20px 0;
+        }
+        .upload-area:hover {
+            border-color: #666;
+        }
+        .upload-area.dragover {
+            border-color: #007bff;
+            background-color: #f0f8ff;
+        }
+        .thumbnail-container {
+            position: relative;
+            display: inline-block;
+            margin: 10px;
+        }
+        .thumbnail {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .remove-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: red;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .debug-info {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>图片上传调试工具</h1>
+    
+    <div class="upload-area" id="uploadArea">
+        <p>点击选择或拖拽图片到此处</p>
+        <p>支持 JPG、PNG、WebP、GIF 格式，最大 10MB</p>
+    </div>
+    
+    <input type="file" id="fileInput" accept="image/*" multiple style="display: none;">
+    
+    <div id="imagePreview"></div>
+    
+    <div class="debug-info" id="debugInfo">
+        等待上传文件...
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const debugInfo = document.getElementById('debugInfo');
+        
+        let images = [];
+
+        // 文件验证函数
+        function validateImageFile(file) {
+            const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+            const maxSize = 10 * 1024 * 1024; // 10MB
+            
+            const isValidType = validTypes.includes(file.type);
+            const isValidSize = file.size <= maxSize;
+            
+            debugInfo.innerHTML += `<br>文件验证: ${file.name}`;
+            debugInfo.innerHTML += `<br>- 类型: ${file.type} (${isValidType ? '✓' : '✗'})`;
+            debugInfo.innerHTML += `<br>- 大小: ${(file.size / 1024 / 1024).toFixed(2)}MB (${isValidSize ? '✓' : '✗'})`;
+            
+            return isValidType && isValidSize;
+        }
+
+        // 文件转换为DataURL
+        function fileToDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    debugInfo.innerHTML += `<br>DataURL生成成功: ${file.name}`;
+                    debugInfo.innerHTML += `<br>- DataURL长度: ${reader.result.length}字符`;
+                    debugInfo.innerHTML += `<br>- DataURL前缀: ${reader.result.substring(0, 50)}...`;
+                    resolve(reader.result);
+                };
+                reader.onerror = (error) => {
+                    debugInfo.innerHTML += `<br>DataURL生成失败: ${error}`;
+                    reject(error);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // 处理文件选择
+        async function handleFileSelect(files) {
+            if (!files || files.length === 0) return;
+
+            debugInfo.innerHTML = `开始处理 ${files.length} 个文件...`;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                debugInfo.innerHTML += `<br><br>处理文件 ${i + 1}: ${file.name}`;
+                
+                if (!validateImageFile(file)) {
+                    debugInfo.innerHTML += `<br>❌ 文件验证失败，跳过`;
+                    continue;
+                }
+
+                try {
+                    const dataUrl = await fileToDataURL(file);
+                    images.push(dataUrl);
+                    
+                    // 创建缩略图预览
+                    const container = document.createElement('div');
+                    container.className = 'thumbnail-container';
+                    
+                    const img = document.createElement('img');
+                    img.src = dataUrl;
+                    img.className = 'thumbnail';
+                    img.alt = `上传图片 ${images.length}`;
+                    
+                    const removeBtn = document.createElement('button');
+                    removeBtn.className = 'remove-btn';
+                    removeBtn.textContent = '×';
+                    removeBtn.onclick = () => {
+                        const index = images.indexOf(dataUrl);
+                        if (index > -1) {
+                            images.splice(index, 1);
+                            container.remove();
+                            debugInfo.innerHTML += `<br>删除图片: ${file.name}`;
+                        }
+                    };
+                    
+                    container.appendChild(img);
+                    container.appendChild(removeBtn);
+                    imagePreview.appendChild(container);
+                    
+                    debugInfo.innerHTML += `<br>✅ 图片添加成功，当前共 ${images.length} 张图片`;
+                    
+                } catch (error) {
+                    debugInfo.innerHTML += `<br>❌ 处理失败: ${error.message}`;
+                }
+            }
+        }
+
+        // 事件监听
+        uploadArea.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files));
+
+        // 拖拽事件
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFileSelect(e.dataTransfer.files);
+        });
+    </script>
+</body>
+</html>

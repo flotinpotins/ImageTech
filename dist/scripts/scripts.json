@@ -1,0 +1,5 @@
+[
+  { "value": "remove-brackets", "label": "去除大括号 {}", "file": "/scripts/remove-brackets.js" },
+  { "value": "remove-roman-numerals", "label": "去除阿拉伯数字", "file": "/scripts/remove-roman-numerals.js" },
+  { "value": "remove-before-colon", "label": "去除冒号前内容", "file": "/scripts/remove-before-colon.js" }
+]

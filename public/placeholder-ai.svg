@@ -1,0 +1,4 @@
+<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="300" height="200" fill="#fef7ff" stroke="#d946ef" stroke-width="2"/>
+  <text x="150" y="100" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="18" fill="#a21caf">AI艺术</text>
+</svg>
