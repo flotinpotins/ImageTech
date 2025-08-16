@@ -559,7 +559,7 @@ export function exportPresets(presets: any[], filename?: string): void {
 }
 
 // 验证导入的预设数据
-export function validateImportedPresets(data: any): { isValid: boolean; errors: string[]; presets?: any[] } {
+export function validateImportedPresets(data: any, filename?: string): { isValid: boolean; errors: string[]; presets?: any[] } {
   const errors: string[] = [];
   
   if (!data || typeof data !== 'object') {
@@ -573,6 +573,9 @@ export function validateImportedPresets(data: any): { isValid: boolean; errors: 
   }
   
   const validPresets: any[] = [];
+  
+  // 从文件名生成预设标题（去掉.json扩展名）
+  const baseTitle = filename ? filename.replace(/\.json$/i, '') : null;
   
   data.presets.forEach((preset: any, index: number) => {
     const presetErrors: string[] = [];
@@ -600,6 +603,12 @@ export function validateImportedPresets(data: any): { isValid: boolean; errors: 
     if (presetErrors.length === 0) {
       // 确保ID唯一性
       preset.id = generateId();
+      
+      // 如果有文件名，优先使用文件名作为标题
+      if (baseTitle) {
+        preset.title = data.presets.length > 1 ? `${baseTitle}_${index + 1}` : baseTitle;
+      }
+      
       validPresets.push(preset);
     } else {
       errors.push(...presetErrors);
@@ -619,7 +628,7 @@ export function validateImportedPresets(data: any): { isValid: boolean; errors: 
 }
 
 // 处理文件导入
-export function importPresetsFromFile(file: File): Promise<{ isValid: boolean; errors: string[]; presets?: any[] }> {
+export function importPresetsFromFile(file: File, filename?: string): Promise<{ isValid: boolean; errors: string[]; presets?: any[] }> {
   return new Promise((resolve, _reject) => {
     if (!file.type.includes('json')) {
       resolve({ isValid: false, errors: ['请选择JSON格式的文件'] });
@@ -630,7 +639,7 @@ export function importPresetsFromFile(file: File): Promise<{ isValid: boolean; e
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
-        const result = validateImportedPresets(data);
+        const result = validateImportedPresets(data, filename || file.name);
         resolve(result);
       } catch (error) {
         resolve({ isValid: false, errors: ['文件格式错误，请确保是有效的JSON文件'] });

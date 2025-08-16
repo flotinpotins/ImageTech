@@ -83,9 +83,8 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     if (p.size && p.size !== 'adaptive') {
       form.append('size', p.size === 'auto' ? 'auto' : p.size);
     }
-    if (p.n && p.n > 1) {
-      form.append('n', p.n.toString());
-    }
+    // 总是传递 n 参数，默认为 1
+    form.append('n', (p.n || 1).toString());
     // 注意：quality 在 edits 模式下可能不被支持，这里不传递以避免提供商错误
     
     body = form;
@@ -106,9 +105,8 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     if (p.size && p.size !== 'adaptive') {
       jsonBody.size = p.size === 'auto' ? 'auto' : p.size;
     }
-    if (p.n && p.n > 1) {
-      jsonBody.n = p.n;
-    }
+    // 总是传递 n 参数，默认为 1
+    jsonBody.n = p.n || 1;
     if (p.quality) {
       jsonBody.quality = p.quality;
     }
@@ -167,7 +165,7 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
       throw new Error('PROVIDER_NO_VALID_IMAGES');
     }
     
-    return { urls };
+    return { urls, seed: undefined };
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw new Error('PROVIDER_TIMEOUT');

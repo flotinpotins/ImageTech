@@ -81,7 +81,7 @@ export function SingleGeneration({
 
   const aspectRatio = getAspectRatioFromSize(form.size);
 
-  const [progressInterval, setProgressInterval] = useState<number | null>(null);
+  const [progressInterval, setProgressInterval] = useState<NodeJS.Timeout | null>(null);
   const setState = (updates: any) => {
     onStateChange((prev: any) => ({ ...prev, ...updates }));
   };

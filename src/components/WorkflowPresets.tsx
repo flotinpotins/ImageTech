@@ -97,7 +97,7 @@ export function WorkflowPresets({
     if (!file) return;
 
     try {
-      const result = await importPresetsFromFile(file);
+      const result = await importPresetsFromFile(file, file.name);
       
       if (result.isValid && result.presets) {
         onImportPresets(result.presets);

@@ -1,0 +1,59 @@
+export async function generateJimengT2I(p, apiKey) {
+    const base = process.env.PROVIDER_BASE_URL;
+    const key = apiKey || process.env.PROVIDER_API_KEY;
+    if (!base || !key)
+        throw new Error("MISSING_PROVIDER_CONFIG");
+    const body = {
+        model: "doubao-seedream-3-0-t2i-250415",
+        prompt: p.prompt,
+        response_format: "b64_json", // 改为b64_json以便处理格式
+        size: p.size,
+        seed: p.seed,
+        guidance_scale: p.guidance_scale,
+        watermark: p.watermark ?? false,
+    };
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 120000);
+    try {
+        const url = `${base}/v1/images/generations`;
+        const r = await fetch(url, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${key}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+            signal: ctl.signal,
+        });
+        if (!r.ok) {
+            const msg = await r.text().catch(() => r.statusText);
+            throw new Error(`PROVIDER_${r.status}:${msg}`);
+        }
+        const j = await r.json();
+        // 处理响应数据
+        const data = j?.data || [];
+        if (!Array.isArray(data) || data.length === 0) {
+            throw new Error('PROVIDER_EMPTY_RESULTS');
+        }
+        // 将 b64_json 转换为 data URLs，根据选择的格式设置MIME类型
+        const imageFormat = p.imageFormat || 'png';
+        const mimeType = imageFormat === 'jpg' ? 'image/jpeg' : 'image/png';
+        const urls = data
+            .map((item) => item.b64_json)
+            .filter(Boolean)
+            .map((b64) => `data:${mimeType};base64,${b64}`);
+        if (urls.length === 0) {
+            throw new Error('PROVIDER_NO_VALID_IMAGES');
+        }
+        return { urls, seed: p.seed };
+    }
+    catch (err) {
+        if (err?.name === "AbortError") {
+            throw new Error("PROVIDER_TIMEOUT");
+        }
+        throw err;
+    }
+    finally {
+        clearTimeout(to);
+    }
+}
