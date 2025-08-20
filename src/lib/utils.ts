@@ -1,6 +1,5 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { uploadImagesToTemp } from "./imageUpload";
 import type { 
   SingleGenerationForm, 
   CreateTaskRequest,
@@ -117,7 +116,7 @@ export function parseBatchInput(text: string, defaultModel: string = 'jimeng-t2i
 
 // 构建API请求参数
 export async function buildTaskRequest(form: SingleGenerationForm): Promise<CreateTaskRequest> {
-  const { model, prompt, size, guidanceScale, images, mask, n, quality, imageFormat, seed, safetyTolerance, aspectRatio } = form;
+  const { model, prompt, size, guidanceScale, images, mask, n, quality, imageFormat } = form;
   
   // 将"自适应"规范化为 undefined，避免把无效的 size 传给后端/服务商
   const normalizedSize = size === 'adaptive' ? undefined : size;

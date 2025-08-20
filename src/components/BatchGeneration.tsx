@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { Progress } from '@/components/ui/progress';
 import { ImageUpload } from './ImageUpload';
 import { SizeQuickSelect } from './SizeQuickSelect';
 import {
@@ -85,7 +84,6 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     tasks, 
     config, 
     status, 
-    progress, 
     prependPrompt, 
     appendPrompt, 
     batchImages, 
@@ -98,7 +96,6 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
   } = state;
   
   // 保障：即使 progress 暂时未定义，也不会导致渲染报错
-  const safeProgress = progress ?? { completed: 0, total: 0 };
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
