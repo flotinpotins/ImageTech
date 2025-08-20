@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import routes from "./routes/tasks.js";
 import tokenRoutes from "./routes/token.js";
+import uploadRoutes from "./routes/upload.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -19,6 +20,7 @@ await app.register(cors, {
 
 await app.register(routes);
 await app.register(tokenRoutes);
+await app.register(uploadRoutes);
 
 const port = Number(process.env.PORT || 3001);
 

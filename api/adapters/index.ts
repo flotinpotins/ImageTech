@@ -25,5 +25,7 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
     }, apiKey);
   }
   
-  throw new Error(`UNSUPPORTED_MODEL:${model}`);
+
+  
+  throw new Error(`UNSUPPORTED_MODEL:${model}`);}]}}
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -127,7 +127,7 @@ export function SingleGeneration({
       const startTime = Date.now();
       
       // 构建请求
-      const request = buildTaskRequest(form);
+      const request = await buildTaskRequest(form);
       
       // 创建任务
       const createResponse = await createTask(request, apiKey);
@@ -482,6 +482,8 @@ export function SingleGeneration({
             </div>
           </div>
         )}
+
+
 
 
         {/* 操作按钮 */}

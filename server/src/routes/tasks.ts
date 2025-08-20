@@ -22,6 +22,7 @@ const CreateSchema = z.object({
       mask: z.string().optional(),
       n: z.number().optional(),
       quality: z.enum(["high", "medium", "low"]).optional(),
+
     })
     .optional(),
 });
@@ -38,8 +39,11 @@ export default async function routes(app: FastifyInstance) {
     const apiKey = req.headers['x-api-key'] as string;
     
     try {
-      const { urls, seed } = await dispatchGenerate(model, { prompt, ...params }, apiKey);
+      const result = await dispatchGenerate(model, { prompt, ...params }, apiKey);
       const id = `tsk_${Date.now()}`;
+      
+      // 处理同步任务
+      const { urls, seed } = result;
       const payload = {
         id,
         status: "succeeded",
@@ -59,6 +63,7 @@ export default async function routes(app: FastifyInstance) {
     const id = (req.params as any)?.id as string;
     const t = tasks.get(id);
     if (!t) return res.status(404).send("not found");
+    
     res.send(t);
   });
 
@@ -70,6 +75,7 @@ export default async function routes(app: FastifyInstance) {
     }
     const t = tasks.get(taskId);
     if (!t) return res.status(404).send("not found");
+    
     res.send(t);
   });
 }

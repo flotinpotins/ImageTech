@@ -16,17 +16,14 @@ export interface SingleGenerationForm {
   size: SizeOption;
   model: ModelType;
   imageFormat: ImageFormat; // 图像输出格式
-  // t2i 专属
+  seed?: number;
   guidanceScale?: number;
-  // i2i 专属
+  watermark?: boolean;
   images?: string[]; // dataURL数组
-  // gpt-image-1 专属
   mask?: string; // dataURL (PNG)
   n?: number; // 生成图片数量 1-10
   quality?: 'high' | 'medium' | 'low'; // 图片质量
-  // 文件命名选项
   usePromptAsFilename?: boolean;
-  // 图片命名格式配置
   imageNaming?: ImageNamingConfig;
 }
 

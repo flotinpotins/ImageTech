@@ -318,11 +318,6 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      {/* 顶部标题栏 */}
-      <header className="border-b px-6 py-4">
-        <h1 className="text-2xl font-bold">广告位招租</h1>
-      </header>
-
       {/* 主要内容区域 */}
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧边栏 */}

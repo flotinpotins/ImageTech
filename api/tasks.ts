@@ -1,4 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { generateFluxKontextMulti } from './adapters/flux_kontext_multi';
 
 const tasks = new Map<string, any>();
 
@@ -228,6 +229,20 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
       n: payload?.n ?? payload?.params?.n,
       quality: payload?.quality ?? payload?.params?.quality,
       imageFormat: payload?.imageFormat ?? payload?.params?.imageFormat,
+    }, apiKey);
+  }
+  
+  if (model === "flux-kontext-multi") {
+    return generateFluxKontextMulti({
+      prompt: payload.prompt,
+      image_urls: payload?.image_urls ?? payload?.params?.image_urls,
+      seed: payload?.seed ?? payload?.params?.seed,
+      guidance_scale: payload?.guidance_scale ?? payload?.params?.guidance_scale,
+      sync_mode: payload?.sync_mode ?? payload?.params?.sync_mode,
+      num_images: payload?.num_images ?? payload?.params?.num_images,
+      safety_tolerance: payload?.safety_tolerance ?? payload?.params?.safety_tolerance,
+      output_format: payload?.output_format ?? payload?.params?.output_format,
+      aspect_ratio: payload?.aspect_ratio ?? payload?.params?.aspect_ratio,
     }, apiKey);
   }
   

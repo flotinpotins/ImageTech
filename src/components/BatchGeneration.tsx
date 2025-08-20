@@ -340,7 +340,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       updateTask(task.id, { status: 'running' });
       onUpdateHistory(historyId, { status: 'running' });
       
-      const request = buildTaskRequest(taskForm);
+      const request = await buildTaskRequest(taskForm);
       const createResponse = await createTask(request, apiKey);
       
       const result = await pollTaskStatus(
@@ -717,26 +717,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     });
   };
 
-  const progressPercentage = safeProgress.total > 0 ? (safeProgress.completed / safeProgress.total) * 100 : 0;
-
   return (
     <div className="h-full flex flex-col">
-      {/* 进度条区域 - 贯穿两个板块 */}
-      {tasks.length > 0 && (
-        <div className="bg-muted/30 border rounded-lg p-4 mb-6">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">
-                进度: {safeProgress.completed} / {safeProgress.total}
-              </span>
-              <span className="text-sm text-muted-foreground">
-                {progressPercentage.toFixed(1)}%
-              </span>
-            </div>
-            <Progress value={progressPercentage} />
-          </div>
-        </div>
-      )}
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 overflow-hidden">
         {/* 左侧：参数设置 */}
