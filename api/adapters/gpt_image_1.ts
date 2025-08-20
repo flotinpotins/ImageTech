@@ -32,9 +32,9 @@ function getFileExtension(mimeType: string): string {
 
 // 重试配置
 const RETRY_CONFIG = {
-  maxRetries: 3,
-  baseDelay: 1000, // 1秒
-  maxDelay: 10000, // 10秒
+  maxRetries: 2, // 减少重试次数
+  baseDelay: 500, // 减少初始延迟到0.5秒
+  maxDelay: 3000, // 减少最大延迟到3秒
   retryableStatuses: [502, 503, 504, 429] // 可重试的HTTP状态码
 };
 
@@ -138,10 +138,11 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
   // 带重试的请求函数
   async function makeRequest(attempt: number = 0): Promise<{ urls: string[]; seed: undefined }> {
     const ctl = new AbortController();
-    const timeout = setTimeout(() => ctl.abort(), 300_000); // 300s 超时，处理大图片
+    const timeout = setTimeout(() => ctl.abort(), 60_000); // 减少超时到60秒
     
     try {
       console.log(`=== GPT API Request Attempt ${attempt + 1}/${RETRY_CONFIG.maxRetries + 1} ===`);
+      console.log(`Request URL: ${url}`);
       
       const response = await fetch(url, {
         method: 'POST',
