@@ -7,7 +7,7 @@ create extension if not exists pgcrypto;  -- gen_random_uuid()
 /* ===================== tasks：一次生成一个任务 ===================== */
 create table if not exists tasks (
   id          text primary key,   -- 你的后端生成的 taskId（如 tsk_xxx）
-  model       text not null,      -- 'jimeng-t2i' | 'jimeng-i2i' | 'gpt-image-1' ...
+  model       text not null,      -- 'jimeng-t2i' | 'gpt-image-1' ...
   prompt      text,
   params      jsonb,              -- size/guidance_scale/watermark/输入图数量等
   status      text not null check (status in ('queued','running','succeeded','failed')),

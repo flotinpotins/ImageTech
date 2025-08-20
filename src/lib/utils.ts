@@ -136,15 +136,6 @@ export function buildTaskRequest(form: SingleGenerationForm): CreateTaskRequest 
       };
       break;
       
-    case 'jimeng-i2i':
-      params = {
-        ...params,
-        model: 'doubao-seededit-3-0-i2i-250628',
-        image: images?.[0],
-        images: images || []
-      };
-      break;
-
     case 'gpt-image-1': {
       // gpt-image-1 统一通过后端强制 b64_json，但前端也传 b64_json 以对齐现有协议
       params = {
@@ -208,7 +199,8 @@ export async function pollTaskStatus(
   taskId: string, 
   onUpdate: (result: TaskResult) => void,
   maxAttempts: number = 60,
-  interval: number = 2000
+  interval: number = 2000,
+  onProgress?: (progress: number) => void
 ): Promise<TaskResult> {
   let attempts = 0;
   
@@ -217,6 +209,17 @@ export async function pollTaskStatus(
       try {
         attempts++;
         const result = await getTask(taskId);
+        
+        // 计算进度百分比（基于轮询次数，最大95%，完成时100%）
+        if (onProgress) {
+          if (result.status === 'succeeded' || result.status === 'failed') {
+            onProgress(100);
+          } else {
+            // 根据轮询次数计算进度，最大到95%
+            const progressPercent = Math.min((attempts / maxAttempts) * 95, 95);
+            onProgress(progressPercent);
+          }
+        }
         
         onUpdate(result);
         
@@ -315,45 +318,80 @@ export function openImage(
     appendPrompt?: string;
     imageFormat?: string;
     taskIndex?: number;
+    // 新增：支持图片列表和导航
+    imageList?: string[];
+    currentIndex?: number;
   }
 ): void {
   try {
-    let imageSrc = url;                 // 预览使用的图片地址
+    // 图片列表和当前索引
+    const imageList = options?.imageList || [url];
+    let currentIndex = options?.currentIndex || 0;
+    
+    // 确保索引在有效范围内
+    if (currentIndex < 0) currentIndex = 0;
+    if (currentIndex >= imageList.length) currentIndex = imageList.length - 1;
+    
+    let currentUrl = imageList[currentIndex];
+    let imageSrc = currentUrl;                 // 预览使用的图片地址
     let createdObjectUrl: string | null = null; // 若我们创建了对象URL，用于清理
     let fileExt = 'png';
 
-    // 若为 data:image，先转成 Blob URL 以避免超长 data URL 带来的性能问题
-    if (url.startsWith('data:image/')) {
-      const match = url.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
-      if (match) {
-        const mime = match[1];
-        fileExt = mime.split('/')[1] || 'png';
-        const base64 = match[2];
-        const binary = atob(base64);
-        const len = binary.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-        const imageBlob = new Blob([bytes], { type: mime });
-        createdObjectUrl = URL.createObjectURL(imageBlob);
-        imageSrc = createdObjectUrl;
+    // 处理当前图片URL的函数
+    const processImageUrl = (url: string) => {
+      let src = url;
+      let objectUrl: string | null = null;
+      let ext = 'png';
+      
+      // 若为 data:image，先转成 Blob URL 以避免超长 data URL 带来的性能问题
+      if (url.startsWith('data:image/')) {
+        const match = url.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+        if (match) {
+          const mime = match[1];
+          ext = mime.split('/')[1] || 'png';
+          const base64 = match[2];
+          const binary = atob(base64);
+          const len = binary.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+          const imageBlob = new Blob([bytes], { type: mime });
+          objectUrl = URL.createObjectURL(imageBlob);
+          src = objectUrl;
+        }
+      } else {
+        // 普通 URL：尝试从 URL 推断扩展名
+        const m = url.match(/\.([a-zA-Z0-9]+)(?:\?|#|$)/);
+        if (m) ext = m[1].toLowerCase();
       }
-    } else {
-      // 普通 URL：尝试从 URL 推断扩展名
-      const m = url.match(/\.([a-zA-Z0-9]+)(?:\?|#|$)/);
-      if (m) fileExt = m[1].toLowerCase();
-    }
+      
+      return { src, objectUrl, ext };
+    };
+    
+    const { src, objectUrl, ext } = processImageUrl(currentUrl);
+    imageSrc = src;
+    createdObjectUrl = objectUrl;
+    fileExt = ext;
 
     // —— 统一的预览层 ——
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:999999;';
 
     const container = document.createElement('div');
-    container.style.cssText = 'max-width:90vw;max-height:90vh;text-align:center;color:#fff;';
+    container.style.cssText = 'max-width:90vw;max-height:90vh;text-align:center;color:#fff;position:relative;';
 
     const imgEl = document.createElement('img');
     imgEl.src = imageSrc;
     imgEl.alt = 'Generated Image';
     imgEl.style.cssText = 'max-width:90vw;max-height:80vh;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
+
+    // 图片位置指示器（仅在有多张图片时显示）
+    let indicator: HTMLElement | null = null;
+    if (imageList.length > 1) {
+      indicator = document.createElement('div');
+      indicator.style.cssText = 'position:absolute;top:-40px;left:50%;transform:translateX(-50%);color:white;background:rgba(0,0,0,0.5);padding:8px 16px;border-radius:20px;font-size:14px;font-family:Arial,sans-serif;pointer-events:none;';
+      indicator.textContent = `${currentIndex + 1} / ${imageList.length}`;
+      container.appendChild(indicator);
+    }
 
     const actions = document.createElement('div');
     actions.style.cssText = 'margin-top:12px;display:flex;gap:12px;justify-content:center;';
@@ -376,6 +414,34 @@ export function openImage(
     document.body.style.overflow = 'hidden';
     document.body.appendChild(overlay);
 
+    // 切换到指定索引的图片
+    const switchToImage = (newIndex: number) => {
+      if (newIndex < 0 || newIndex >= imageList.length) return;
+      
+      currentIndex = newIndex;
+      currentUrl = imageList[currentIndex];
+      
+      // 清理之前的对象URL
+      if (createdObjectUrl) {
+        URL.revokeObjectURL(createdObjectUrl);
+        createdObjectUrl = null;
+      }
+      
+      // 处理新图片
+      const { src, objectUrl, ext } = processImageUrl(currentUrl);
+      imageSrc = src;
+      createdObjectUrl = objectUrl;
+      fileExt = ext;
+      
+      // 更新图片显示
+      imgEl.src = imageSrc;
+      
+      // 更新位置指示器
+      if (indicator) {
+        indicator.textContent = `${currentIndex + 1} / ${imageList.length}`;
+      }
+    };
+
     const cleanup = () => {
       try { document.body.style.overflow = prevOverflow; } catch (_) { /* ignore */ }
       try { overlay.remove(); } catch (_) { /* ignore */ }
@@ -385,8 +451,26 @@ export function openImage(
       document.removeEventListener('keydown', onKeydown);
     };
 
-    const onKeydown = (e: KeyboardEvent) => { if (e.key === 'Escape') cleanup(); };
+    const onKeydown = (e: KeyboardEvent) => {
+      console.log('键盘事件:', e.key, '图片列表长度:', imageList.length, '当前索引:', currentIndex);
+      if (e.key === 'Escape') {
+        cleanup();
+      } else if (imageList.length > 1) {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const newIndex = currentIndex > 0 ? currentIndex - 1 : imageList.length - 1;
+          console.log('左键切换到索引:', newIndex);
+          switchToImage(newIndex);
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const newIndex = currentIndex < imageList.length - 1 ? currentIndex + 1 : 0;
+          console.log('右键切换到索引:', newIndex);
+          switchToImage(newIndex);
+        }
+      }
+    };
     document.addEventListener('keydown', onKeydown);
+    console.log('键盘事件监听器已添加，图片列表:', imageList, '当前索引:', currentIndex);
 
     closeBtn.addEventListener('click', cleanup);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
@@ -511,9 +595,6 @@ export function validateForm(form: SingleGenerationForm): string[] {
     errors.push('请输入提示词');
   }
   
-  if (form.model === 'jimeng-i2i' && (!form.images || form.images.length === 0)) {
-    errors.push('图生图模式需要上传至少一张图片');
-  }
 
   // jimeng-t2i 校验：引导系数范围 1-10
   if (form.model === 'jimeng-t2i' && form.guidanceScale !== undefined) {

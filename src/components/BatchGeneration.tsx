@@ -66,7 +66,7 @@ interface BatchGenerationProps {
     previewImage: string;
     mask?: string;
     n?: number;
-    quality?: 'auto' | 'high' | 'medium' | 'low';
+    quality?: 'high' | 'medium' | 'low';
     selectedMasks?: string[];
     model: string;
     imageFormat?: ImageFormat;
@@ -76,9 +76,10 @@ interface BatchGenerationProps {
     };
   };
   onStateChange: (state: any) => void;
+  onGenerationComplete?: () => void;
 }
 
-export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpdateHistory, apiKey, state, onStateChange }: BatchGenerationProps) {
+export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpdateHistory, apiKey, state, onStateChange, onGenerationComplete }: BatchGenerationProps) {
   const { 
     inputText, 
     tasks, 
@@ -282,7 +283,6 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     // 优先使用state.model，确保使用用户当前选择的模型
     const currentModel = state.model || defaultForm.model;
     const isImageBasedModel = (
-      task.parsed.model === 'jimeng-i2i' ||
       task.parsed.model === 'doubao-seededit-3-0-i2i-250628' ||
       currentModel === 'gpt-image-1'
     );
@@ -309,7 +309,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       ...(currentModel === 'gpt-image-1' && {
          mask: state.mask || task.parsed.mask,
          n: state.n || task.parsed.n || 1,
-         quality: state.quality || task.parsed.quality || 'auto',
+         quality: state.quality || task.parsed.quality || 'medium',
        })
      };
 
@@ -476,6 +476,9 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
           title: '执行完成',
           description: `批量生成完成，${failedCount > 0 ? `${failedCount} 个任务失败` : '全部成功'}`,
         });
+        
+        // 批量生成完成后刷新余额
+        onGenerationComplete?.();
       }
     } catch (error) {
       setState({ status: 'idle' });
@@ -699,7 +702,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       ...((state.model || defaultForm.model) === 'gpt-image-1' && {
         mask: state.mask || defaultForm.mask,
         n: state.n || defaultForm.n || 1,
-        quality: state.quality || defaultForm.quality || 'auto',
+        quality: state.quality || defaultForm.quality || 'medium',
       }),
       isOfficial: false,
       createdAt: Date.now(),
@@ -772,15 +775,15 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
         </div>
 
         {/* 提示词设置 - 移动到输入框下方，缩小尺寸 */}
-        <details className="group">
+        <details className="border rounded-lg p-3 text-sm group">
           <summary className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-lg p-2 transition-colors list-none">
-            <h3 className="text-base font-medium">附加提示词</h3>
+            <h3 className="text-base font-medium text-gray-500">附加提示词</h3>
             <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
           </summary>
           
           <div className="space-y-3 pt-2">
             <div className="space-y-1">
-              <label className="text-xs font-medium">前置提示词 (选填)</label>
+              <label className="text-xs font-medium text-gray-500">前置提示词 (选填)</label>
               <Textarea
                 placeholder="添加到每个提示词前面的内容，如数量词。"
                 value={prependPrompt}
@@ -790,7 +793,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
             </div>
             
             <div className="space-y-1">
-              <label className="text-xs font-medium">后置提示词 (选填)</label>
+              <label className="text-xs font-medium text-gray-500">后置提示词 (选填)</label>
               <Textarea
                 placeholder="添加到每个提示词后面的内容，如画面效果，风格词等"
                 value={appendPrompt}
@@ -883,11 +886,10 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
                   <div>
                     <label className="text-xs font-medium">质量（quality）</label>
                     <select
-                      value={state.quality || 'auto'}
+                      value={state.quality || 'medium'}
                       onChange={(e) => setState({ quality: e.target.value })}
                       className="w-full px-2 py-1 border rounded-md h-8 text-xs"
                     >
-                      <option value="auto">auto</option>
                       <option value="high">high</option>
                       <option value="medium">medium</option>
                       <option value="low">low</option>
@@ -939,7 +941,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
                 })}
                 className="rounded"
               />
-              <label htmlFor="naming-enabled" className="text-sm">自定义图片保存名称</label>
+              <label htmlFor="naming-enabled" className="text-sm text-gray-500">自定义图片保存名称</label>
             </div>
             
             {state.imageNaming?.enabled && (
@@ -1201,7 +1203,9 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
                                 prependPrompt,
                                 appendPrompt,
                                 imageFormat: state.imageFormat,
-                                taskIndex: task.lineNumber
+                                taskIndex: task.lineNumber,
+                                imageList: task.result.outputUrls,
+                                currentIndex: index
                               })}
                             />
                             {/* 悬浮时显示的操作按钮 */}
@@ -1219,7 +1223,9 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
                                     prependPrompt,
                                     appendPrompt,
                                     imageFormat: state.imageFormat,
-                                    taskIndex: task.lineNumber
+                                    taskIndex: task.lineNumber,
+                                    imageList: task.result.outputUrls,
+                                    currentIndex: index
                                   });
                                 }}
                                 title="查看原图"

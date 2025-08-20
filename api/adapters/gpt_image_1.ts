@@ -6,7 +6,7 @@ export type GPTImageParams = {
   mask?: string;      // dataURL (PNG)
   size?: string;      // "1024x1024"|"1536x1024"|"1024x1536"|"auto"
   n?: number;         // 1-10, 默认 1
-  quality?: string;   // "high"|"medium"|"low"|"auto"
+  quality?: string;   // "high"|"medium"|"low"
   imageFormat?: string; // "png"|"jpg", 默认 "png"
 };
 
@@ -84,7 +84,10 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     }
     // 总是传递 n 参数，默认为 1
     form.append('n', (p.n || 1).toString());
-    // 注意：quality 在 edits 模式下可能不被支持，这里不传递以避免提供商错误
+    // 尝试传递 quality 参数，如果提供商不支持会忽略
+    if (p.quality) {
+      form.append('quality', p.quality);
+    }
     
     body = form;
     headers = {

@@ -1,5 +1,5 @@
 // 模型类型
-export type ModelType = 'jimeng-t2i' | 'jimeng-i2i' | 'gpt-image-1' | 'doubao-seededit-3-0-i2i-250628';
+export type ModelType = 'jimeng-t2i' | 'gpt-image-1' | 'doubao-seededit-3-0-i2i-250628';
 
 // 任务状态
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed';
@@ -23,7 +23,7 @@ export interface SingleGenerationForm {
   // gpt-image-1 专属
   mask?: string; // dataURL (PNG)
   n?: number; // 生成图片数量 1-10
-  quality?: 'high' | 'medium' | 'low' | 'auto'; // 图片质量
+  quality?: 'high' | 'medium' | 'low'; // 图片质量
   // 文件命名选项
   usePromptAsFilename?: boolean;
   // 图片命名格式配置

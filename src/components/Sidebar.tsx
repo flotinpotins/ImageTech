@@ -1,5 +1,7 @@
+import { useRef, forwardRef, useImperativeHandle } from 'react';
 import { ModelSelector } from '@/components/ModelSelector';
 import { ApiKeyManager } from '@/components/ApiKeyManager';
+import { TokenBalance, TokenBalanceRef } from '@/components/TokenBalance';
 import type { ModelType, Preset } from '@/types';
 
 interface SidebarProps {
@@ -13,14 +15,26 @@ interface SidebarProps {
   onApiKeyChange: (apiKey: string) => void;
 }
 
-export function Sidebar({
+export interface SidebarRef {
+  refreshTokenBalance: () => Promise<void>;
+}
+
+export const Sidebar = forwardRef<SidebarRef, SidebarProps>(({ 
   selectedModel,
   onModelChange,
   recentPresets = [],
   onApplyPreset,
   apiKey,
   onApiKeyChange,
-}: SidebarProps) {
+}, ref) => {
+  const tokenBalanceRef = useRef<TokenBalanceRef>(null);
+
+  // 暴露刷新令牌余额的函数给父组件
+  useImperativeHandle(ref, () => ({
+    refreshTokenBalance: async () => {
+      await tokenBalanceRef.current?.refreshBalance();
+    }
+  }));
   return (
     <div className="w-80 border-r bg-muted/30 p-6 space-y-6 overflow-y-auto">
       {/* 模型选择 */}
@@ -31,6 +45,11 @@ export function Sidebar({
       {/* API Key 管理 */}
       <div className="space-y-3">
         <ApiKeyManager value={apiKey} onChange={onApiKeyChange} />
+      </div>
+
+      {/* 令牌余额查询 */}
+      <div className="space-y-3">
+        <TokenBalance ref={tokenBalanceRef} apiKey={apiKey} />
       </div>
 
       {/* 最近预设 */}
@@ -67,4 +86,4 @@ export function Sidebar({
       </div>
     </div>
   );
-}
+});

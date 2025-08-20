@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Toaster } from '@/components/ui/toaster';
-import { Sidebar } from '@/components/Sidebar';
+import { Sidebar, SidebarRef } from '@/components/Sidebar';
 import { RightSidebar } from '@/components/RightSidebar';
 import { SingleGeneration } from '@/components/SingleGeneration';
 import { BatchGeneration } from '@/components/BatchGeneration';
@@ -17,6 +17,9 @@ import type {
 } from '@/types';
 
 function App() {
+  // Sidebar ref for token balance refresh
+  const sidebarRef = useRef<SidebarRef>(null);
+  
   // 主要状态
   const [activeTab, setActiveTab] = useState('single');
   const [selectedModel, setSelectedModel] = useState<ModelType>('jimeng-t2i');
@@ -90,7 +93,7 @@ function App() {
     previewImage: '',
     mask: undefined as string | undefined,
     n: 1,
-    quality: 'auto' as 'auto' | 'high' | 'medium' | 'low',
+    quality: 'medium' as 'high' | 'medium' | 'low',
     selectedMasks: [] as string[],
     model: 'jimeng-t2i',
     imageNaming: {
@@ -142,7 +145,14 @@ function App() {
     }));
   }, []);
 
-
+  // 刷新令牌余额
+  const refreshTokenBalance = useCallback(async () => {
+    try {
+      await sidebarRef.current?.refreshTokenBalance();
+    } catch (error) {
+      console.error('Failed to refresh token balance:', error);
+    }
+  }, []);
 
   // 处理历史项选择
   const handleHistoryItemSelect = useCallback((item: HistoryItem) => {
@@ -194,7 +204,7 @@ function App() {
     appendPrompt: '',
     mask: undefined,
     n: 1,
-    quality: 'auto',
+    quality: 'medium' as 'high' | 'medium' | 'low',
   });
 
   // 应用预设并生成
@@ -317,6 +327,7 @@ function App() {
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧边栏 */}
         <Sidebar
+          ref={sidebarRef}
           selectedModel={selectedModel}
           onModelChange={handleModelChange}
           recentPresets={myPresets.slice(0, 4)}
@@ -349,6 +360,7 @@ function App() {
                   apiKey={apiKeyConfig.useGlobalApiKey ? apiKeyConfig.globalApiKey : undefined}
                   state={singleState}
                   onStateChange={setSingleState}
+                  onGenerationComplete={refreshTokenBalance}
                 />
               </TabsContent>
               
@@ -361,6 +373,7 @@ function App() {
                   apiKey={apiKeyConfig.useGlobalApiKey ? apiKeyConfig.globalApiKey : undefined}
                   state={batchState}
                   onStateChange={setBatchState}
+                  onGenerationComplete={refreshTokenBalance}
                 />
               </TabsContent>
 

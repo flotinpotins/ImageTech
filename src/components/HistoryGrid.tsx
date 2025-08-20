@@ -29,7 +29,9 @@ export function HistoryGrid({ items, onItemClick, onTogglePin, onTransferPrompt 
         prompt: item.prompt,
         usePromptAsFilename: true,
         imageFormat: 'png',
-        taskIndex: 1
+        taskIndex: 1,
+        imageList: item.result?.outputUrls || [url],
+        currentIndex: 0
       });
     }
   };

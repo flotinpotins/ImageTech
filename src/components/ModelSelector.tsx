@@ -14,7 +14,6 @@ interface ModelSelectorProps {
 
 const modelOptions = [
   { value: 'jimeng-t2i', label: '即梦·文生图' },
-  { value: 'jimeng-i2i', label: '即梦·图生图' },
   { value: 'gpt-image-1', label: 'GPT·图像生成/编辑' },
 ] as const;
 
