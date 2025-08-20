@@ -492,8 +492,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
   const handleStandardMode = () => executeGeneration(2);
   const handleFullSpeedMode = () => executeGeneration(5);
 
-  // 保留原有的handleStart函数用于重新开始功能
-  const handleStart = () => executeGeneration(config.concurrency);
+
 
   const handlePause = () => {
     executionRef.current.isPaused = true;
@@ -1088,26 +1087,21 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
                     </Button>
                   </>
                 )}
+
                 {(status === 'completed' || status === 'stopped') && (
-                  <>
-                    <Button onClick={handleStart}>
-                      <Play className="h-4 w-4 mr-2" />
-                      重新开始
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setState({
-                          tasks: [],
-                          status: 'idle',
-                          progress: { completed: 0, total: 0 },
-                        });
-                      }}
-                    >
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      重置
-                    </Button>
-                  </>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setState({
+                        tasks: [],
+                        status: 'idle',
+                        progress: { completed: 0, total: 0 },
+                      });
+                    }}
+                  >
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    重置
+                  </Button>
                 )}
               </div>
             </div>
