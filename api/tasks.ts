@@ -1,5 +1,4 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { generateFluxKontextMulti } from './adapters/flux_kontext_multi';
 
 const tasks = new Map<string, any>();
 

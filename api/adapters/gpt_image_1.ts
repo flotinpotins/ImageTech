@@ -65,13 +65,15 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     for (let i = 0; i < editImages.length; i++) {
       const { buffer, mimeType } = dataURLToBuffer(editImages[i]);
       const ext = getFileExtension(mimeType);
-      form.append('image', buffer, `image_${i}.${ext}`);
+      const blob = new Blob([buffer], { type: mimeType });
+      form.append('image', blob, `image_${i}.${ext}`);
     }
     
     // 添加 mask (如果有)
     if (p.mask) {
-      const { buffer } = dataURLToBuffer(p.mask);
-      form.append('mask', buffer, 'mask.png');
+      const { buffer, mimeType } = dataURLToBuffer(p.mask);
+      const blob = new Blob([buffer], { type: mimeType });
+      form.append('mask', blob, 'mask.png');
     }
     
     // 添加其他参数
@@ -90,10 +92,8 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     }
     
     body = form;
-    headers = {
-      ...headers,
-      ...form.getHeaders(),
-    };
+    // 在Vercel环境中，FormData会自动设置正确的Content-Type
+    // 不需要手动设置headers
   } else {
     // 文生图模式 - 使用 JSON
     headers['Content-Type'] = 'application/json';
