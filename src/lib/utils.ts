@@ -118,6 +118,19 @@ export function parseBatchInput(text: string, defaultModel: string = 'jimeng-t2i
 export async function buildTaskRequest(form: SingleGenerationForm): Promise<CreateTaskRequest> {
   const { model, prompt, size, guidanceScale, images, mask, n, quality, imageFormat } = form;
   
+  // 添加参数验证日志
+  console.log('=== Frontend buildTaskRequest ===');
+  console.log('Model:', model);
+  console.log('Prompt:', prompt?.substring(0, 50) + (prompt?.length > 50 ? '...' : ''));
+  console.log('Size:', size);
+  console.log('Images count:', images?.length || 0);
+  console.log('Has mask:', !!mask);
+  console.log('N:', n);
+  console.log('Quality:', quality);
+  console.log('Image format:', imageFormat);
+  console.log('Guidance scale:', guidanceScale);
+  console.log('==================================');
+  
   // 将"自适应"规范化为 undefined，避免把无效的 size 传给后端/服务商
   const normalizedSize = size === 'adaptive' ? undefined : size;
   
@@ -142,9 +155,9 @@ export async function buildTaskRequest(form: SingleGenerationForm): Promise<Crea
         size: normalizedSize,
         response_format: 'b64_json',
         // 由后端根据是否有 images 选择 generations 或 edits
-        images: images || undefined,
+        images: images && images.length > 0 ? images : undefined,
         mask: mask || undefined,
-        n: n || undefined,
+        n: n || 1, // 确保总是传递 n 参数，默认为 1
         quality: quality || undefined,
         imageFormat: imageFormat || 'png',
       };

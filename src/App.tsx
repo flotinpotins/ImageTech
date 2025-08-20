@@ -71,15 +71,35 @@ function App() {
     selectedPromptTypes: [] as string[],
   });
 
+  // 获取模型特定的配置
+  const getModelConfig = useCallback((model: ModelType) => {
+    switch (model) {
+      case 'gpt-image-1':
+        return {
+          concurrency: 1, // GPT模型降低并发
+          maxRetries: 3,  // 增加重试次数
+          throttleMs: 1200, // 增加节流时间到1200ms
+        };
+      case 'jimeng-t2i':
+        return {
+          concurrency: 2,
+          maxRetries: 2,
+          throttleMs: 500, // 即梦生图适中的节流时间
+        };
+      default:
+        return {
+          concurrency: 2,
+          maxRetries: 1,
+          throttleMs: 300,
+        };
+    }
+  }, []);
+
   // 批量生成组件内部状态
   const [batchState, setBatchState] = useState({
     inputText: '',
     tasks: [] as any[],
-    config: {
-      concurrency: 2,
-      maxRetries: 1,
-      throttleMs: 300,
-    },
+    config: getModelConfig('jimeng-t2i'), // 使用默认模型配置
     status: 'idle' as any,
     progress: { completed: 0, total: 0 },
     prependPrompt: '',
@@ -119,12 +139,13 @@ function App() {
     setBatchState(prev => ({
       ...prev,
       model: selectedModel,
+      config: getModelConfig(selectedModel) // 同步更新配置
     }));
     setBatchForm(prev => ({
       ...prev,
       model: selectedModel,
     }));
-  }, [selectedModel]);
+  }, [selectedModel, getModelConfig]);
 
   // 处理API Key变更
   const handleApiKeyChange = useCallback((apiKey: string) => {
@@ -137,13 +158,14 @@ function App() {
     setSelectedModel(model);
     setBatchState(prev => ({
       ...prev,
-      model
+      model,
+      config: getModelConfig(model) // 更新模型特定配置
     }));
     setBatchForm(prev => ({
       ...prev,
       model
     }));
-  }, []);
+  }, [getModelConfig]);
 
   // 刷新令牌余额
   const refreshTokenBalance = useCallback(async () => {

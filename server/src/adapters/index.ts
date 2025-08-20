@@ -14,7 +14,7 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
   }
   
   if (model === "gpt-image-1") {
-    return generateGPTImage({
+    const gptParams = {
       prompt: payload.prompt,
       images: payload?.images ?? payload?.params?.images,
       mask: payload?.mask ?? payload?.params?.mask,
@@ -22,7 +22,15 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
       n: payload?.n ?? payload?.params?.n,
       quality: payload?.quality ?? payload?.params?.quality,
       imageFormat: payload?.imageFormat ?? payload?.params?.imageFormat,
-    }, apiKey);
+    };
+    
+    // 添加参数验证日志
+    console.log('=== Backend dispatchGenerate (GPT) ===');
+    console.log('Received payload:', JSON.stringify(payload, null, 2));
+    console.log('Processed GPT params:', JSON.stringify(gptParams, null, 2));
+    console.log('=====================================');
+    
+    return generateGPTImage(gptParams, apiKey);
   }
   
 

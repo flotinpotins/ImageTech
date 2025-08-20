@@ -107,7 +107,10 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     }
     // 总是传递 n 参数，默认为 1
     jsonBody.n = p.n || 1;
-    // 为避免供应商参数不兼容，暂不传递 quality 字段
+    // 在文生图模式下支持 quality 参数
+    if (p.quality) {
+      jsonBody.quality = p.quality;
+    }
     
     body = JSON.stringify(jsonBody);
   }

@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { MASK_TEMPLATES, generateMaskForSize } from '@/lib/maskTemplates';
+
 import JSZip from 'jszip';
 
 import { Play, Pause, Square, Download, Upload, RotateCcw, ChevronDown } from 'lucide-react';
@@ -149,11 +149,54 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
         // 忽略错误，使用默认回退列表
       }
     };
+    
     loadScripts();
   }, []);
   
+  // 清理定时器，避免内存泄漏
+  useEffect(() => {
+    return () => {
+      if (updateTaskTimeoutRef.current) {
+        clearTimeout(updateTaskTimeoutRef.current);
+      }
+    };
+  }, []);
+  
+  // 使用防抖机制优化任务状态更新，减少频繁重渲染
+  const updateTasksRef = useRef<{[taskId: string]: Partial<BatchTaskItem>}>({});
+  const updateTaskTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   const updateTask = (taskId: string, updates: Partial<BatchTaskItem>) => {
     console.log('Updating task', taskId, 'with updates:', updates);
+    
+    // 累积更新，避免频繁的状态更新
+    updateTasksRef.current[taskId] = {
+      ...updateTasksRef.current[taskId],
+      ...updates
+    };
+    
+    // 清除之前的定时器
+    if (updateTaskTimeoutRef.current) {
+      clearTimeout(updateTaskTimeoutRef.current);
+    }
+    
+    // 设置新的定时器，批量更新
+    updateTaskTimeoutRef.current = setTimeout(() => {
+      const pendingUpdates = { ...updateTasksRef.current };
+      updateTasksRef.current = {};
+      
+      setState((prev: any) => ({
+        tasks: prev.tasks.map((task: any) => {
+          const taskUpdates = pendingUpdates[task.id];
+          return taskUpdates ? { ...task, ...taskUpdates } : task;
+        }),
+      }));
+    }, 100); // 100ms防抖延迟
+  };
+  
+  // 立即更新任务状态（用于关键状态变化）
+  const updateTaskImmediate = (taskId: string, updates: Partial<BatchTaskItem>) => {
+    console.log('Immediate updating task', taskId, 'with updates:', updates);
     setState((prev: any) => ({
       tasks: prev.tasks.map((task: any) =>
         task.id === taskId ? { ...task, ...updates } : task
@@ -268,7 +311,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
 
   const executeTask = async (task: BatchTaskItem, taskIndex: number): Promise<void> => {
     if (!task.parsed) {
-      updateTask(task.id, { 
+      updateTaskImmediate(task.id, { 
         status: 'failed', 
         error: '解析失败：无效的任务数据' 
       });
@@ -313,7 +356,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     // 验证表单
     const errors = validateForm(taskForm);
     if (errors.length > 0) {
-      updateTask(task.id, { 
+      updateTaskImmediate(task.id, { 
         status: 'failed', 
         error: `验证失败: ${errors.join(', ')}` 
       });
@@ -334,7 +377,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     onAddHistory(historyItem);
 
     try {
-      updateTask(task.id, { status: 'running' });
+      // 关键状态变化使用立即更新
+      updateTaskImmediate(task.id, { status: 'running' });
       onUpdateHistory(historyId, { status: 'running' });
       
       const request = await buildTaskRequest(taskForm);
@@ -343,7 +387,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       const result = await pollTaskStatus(
         createResponse.id,
         (intermediateResult) => {
-          // 实时更新任务状态和结果
+          // 中间状态更新使用防抖更新，减少重渲染
           console.log('Poll update for task', task.id, ':', intermediateResult);
           updateTask(task.id, { 
             status: intermediateResult.status, 
@@ -357,7 +401,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       
       console.log('Final result for task', task.id, ':', result);
       
-      updateTask(task.id, { 
+      // 最终结果使用立即更新
+      updateTaskImmediate(task.id, { 
         status: result.status, 
         result,
         error: result.error 
@@ -369,7 +414,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
         result: result,
       });
     } catch (error) {
-      updateTask(task.id, { 
+      // 错误状态使用立即更新
+      updateTaskImmediate(task.id, { 
         status: 'failed', 
         error: error instanceof Error ? error.message : '未知错误' 
       });
@@ -416,6 +462,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     // 并发执行任务
     const executeWithConcurrency = async () => {
         const executing = new Set<Promise<void>>();
+        let lastTaskStartTime = 0;
         
         for (let i = 0; i < pendingTasks.length; i++) {
           const task = pendingTasks[i];
@@ -435,10 +482,13 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
             await Promise.race(executing);
           }
           
-          // 节流
-          if (config.throttleMs > 0) {
-            await delay(config.throttleMs);
+          // 智能节流：只在快速连续启动任务时应用延迟
+          const now = Date.now();
+          const timeSinceLastTask = now - lastTaskStartTime;
+          if (config.throttleMs > 0 && timeSinceLastTask < config.throttleMs && i > 0) {
+            await delay(config.throttleMs - timeSinceLastTask);
           }
+          lastTaskStartTime = Date.now();
           
           // 执行任务（带重试）
           const taskPromise = retryWithBackoff(
@@ -487,10 +537,27 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     }
   };
 
-  // 三种模式的处理函数
-  const handleConservativeMode = () => executeGeneration(1);
-  const handleStandardMode = () => executeGeneration(2);
-  const handleFullSpeedMode = () => executeGeneration(5);
+  // 三种模式的处理函数 - 根据模型调整并发数
+  const handleConservativeMode = () => {
+    // 保守模式使用1个并发，同时更新config
+    const concurrency = 1;
+    setState({ config: { ...config, concurrency } });
+    executeGeneration(concurrency);
+  };
+  
+  const handleStandardMode = () => {
+    // 标准模式使用2个并发，同时更新config
+    const concurrency = 2;
+    setState({ config: { ...config, concurrency } });
+    executeGeneration(concurrency);
+  };
+  
+  const handleFullSpeedMode = () => {
+    // 全速模式使用5个并发，同时更新config
+    const concurrency = 5;
+    setState({ config: { ...config, concurrency } });
+    executeGeneration(concurrency);
+  };
 
   // 保留原有的handleStart函数用于重新开始功能
   const handleStart = () => executeGeneration(config.concurrency);
@@ -808,78 +875,27 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
               </div>
             </div>
 
-            {/* gpt-image-1 参数（批量） */}
-            {state.model === 'gpt-image-1' && (
-              <div className="space-y-3">
-                {/* 蒙版选择器 */}
-                <div>
-                  <label className="text-xs font-medium">蒙版（mask，可选）</label>
-                  <div className="mt-1">
-                    <Select
-                      value={state.mask ? (MASK_TEMPLATES.find(t => t.dataUrl === state.mask)?.id || 'custom') : 'none'}
-                      onValueChange={(value) => {
-                        if (value === 'none') {
-                          setState({ mask: undefined });
-                          return;
-                        }
-                        // 根据当前尺寸生成相同比例的蒙版
-                        const match = (state.size || '1024x1024').match(/^(\d+)x(\d+)$/);
-                        const [w, h] = match ? [parseInt(match[1]), parseInt(match[2])] : [1024, 1024];
-                        const dataUrl = generateMaskForSize(value, w, h);
-                        setState({ mask: dataUrl });
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="选择蒙版模板" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MASK_TEMPLATES.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {state.mask && (
-                    <div className="mt-1">
-                      <img src={state.mask} alt="蒙版预览" className="w-full h-24 object-contain border rounded" />
-                      <Button variant="outline" size="sm" className="mt-1 h-6 px-2 text-xs" onClick={() => setState({ mask: undefined })}>移除蒙版</Button>
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">要求：尺寸会根据当前选择的尺寸自动生成；透明区域为可编辑区域。</p>
-                </div>
-                
-                {/* 生成数量 n 与 质量 quality */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs font-medium">生成数量 n</label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={state.n ?? 1}
-                      onChange={(e) => setState({ n: Math.max(1, Math.min(10, Number(e.target.value))) })}
-                      className="h-8 text-xs"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">范围 1-10，默认 1</p>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium">质量（quality）</label>
-                    <select
-                      value={state.quality || 'medium'}
-                      onChange={(e) => setState({ quality: e.target.value })}
-                      className="w-full px-2 py-1 border rounded-md h-8 text-xs"
-                    >
-                      <option value="high">high</option>
-                      <option value="medium">medium</option>
-                      <option value="low">low</option>
-                    </select>
-                    <p className="text-xs text-muted-foreground mt-1">仅 gpt-image-1 支持</p>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* gpt-image-1 参数（批量） - 隐藏生成数量和蒙版选项 */}
+            {/* 注释：根据用户要求，GPT模型时隐藏生成数量和蒙版选项 */}
           </div>
         </details>
+
+        {/* GPT模型质量选项 - 单独显示 */}
+        {state.model === 'gpt-image-1' && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">图像质量</label>
+            <select
+              value={state.quality || 'medium'}
+              onChange={(e) => setState({ quality: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+            >
+              <option value="high">高质量 (High)</option>
+              <option value="medium">中等质量 (Medium)</option>
+              <option value="low">低质量 (Low)</option>
+            </select>
+            <p className="text-xs text-muted-foreground">仅 GPT 模型支持质量设置</p>
+          </div>
+        )}
 
         {/* 生成尺寸选择 */}
         <div className="space-y-4">
@@ -999,8 +1015,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
           </Button>
         </div>
 
-        {/* 生成模式选择 - 仅在解析完成且状态为idle时显示 */}
-        {tasks.length > 0 && status === 'idle' && (
+        {/* 生成模式选择 - 解析完成后常驻显示 */}
+        {tasks.length > 0 && (
           <div className="space-y-4">
             <div className="space-y-3">
               <h3 className="text-lg font-medium">选择生成模式</h3>
@@ -1009,6 +1025,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
                   onClick={handleConservativeMode}
                   className="h-12 text-left justify-start"
                   variant="outline"
+                  disabled={status === 'running' || status === 'paused'}
                 >
                   <Play className="h-4 w-4 mr-2" />
                   <div>
@@ -1020,6 +1037,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
                   onClick={handleStandardMode}
                   className="h-12 text-left justify-start"
                   variant="outline"
+                  disabled={status === 'running' || status === 'paused'}
                 >
                   <Play className="h-4 w-4 mr-2" />
                   <div>
@@ -1031,6 +1049,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
                   onClick={handleFullSpeedMode}
                   className="h-12 text-left justify-start"
                   variant="outline"
+                  disabled={status === 'running' || status === 'paused'}
                 >
                   <Play className="h-4 w-4 mr-2" />
                   <div>
@@ -1058,8 +1077,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
           </div>
         )}
         
-        {/* 执行控制 - 仅在运行、暂停、完成状态时显示 */}
-        {tasks.length > 0 && status !== 'idle' && (
+        {/* 执行控制 - 仅在运行、暂停状态时显示 */}
+        {tasks.length > 0 && (status === 'running' || status === 'paused') && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-medium">执行控制</h3>
@@ -1085,27 +1104,6 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
                     <Button variant="destructive" onClick={handleStop}>
                       <Square className="h-4 w-4 mr-2" />
                       终止
-                    </Button>
-                  </>
-                )}
-                {(status === 'completed' || status === 'stopped') && (
-                  <>
-                    <Button onClick={handleStart}>
-                      <Play className="h-4 w-4 mr-2" />
-                      重新开始
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setState({
-                          tasks: [],
-                          status: 'idle',
-                          progress: { completed: 0, total: 0 },
-                        });
-                      }}
-                    >
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      重置
                     </Button>
                   </>
                 )}
