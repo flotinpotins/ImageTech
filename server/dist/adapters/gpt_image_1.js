@@ -61,10 +61,9 @@ export async function generateGPTImage(p, apiKey) {
         if (p.size && p.size !== 'adaptive') {
             form.append('size', p.size === 'auto' ? 'auto' : p.size);
         }
-        if (p.n && p.n > 1) {
-            form.append('n', p.n.toString());
-        }
-        // 注意：quality 在 edits 模式下可能不被支持，这里不传递以避免提供商错误
+        // 总是传递 n 参数，默认为 1
+        form.append('n', (p.n || 1).toString());
+        // 注意：quality 在图像编辑模式（edits）下不被支持，不传递以避免提供商错误
         body = form;
         headers = {
             ...headers,
@@ -82,9 +81,8 @@ export async function generateGPTImage(p, apiKey) {
         if (p.size && p.size !== 'adaptive') {
             jsonBody.size = p.size === 'auto' ? 'auto' : p.size;
         }
-        if (p.n && p.n > 1) {
-            jsonBody.n = p.n;
-        }
+        // 总是传递 n 参数，默认为 1
+        jsonBody.n = p.n || 1;
         if (p.quality) {
             jsonBody.quality = p.quality;
         }

@@ -22,7 +22,6 @@ interface PresetCardProps {
 
 const modelLabels = {
   'jimeng-t2i': '即梦·文生图',
-  'jimeng-i2i': '即梦·图生图',
   'doubao-seededit-3-0-i2i-250628': '即梦3·图生图',
   'gpt-image-1': 'GPT·图像生成/编辑',
 };

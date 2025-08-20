@@ -1,6 +1,8 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import routes from "./routes/tasks.js";
+import tokenRoutes from "./routes/token.js";
+import uploadRoutes from "./routes/upload.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -13,10 +15,12 @@ const app = Fastify({
 await app.register(cors, {
   origin: true, // TODO: restrict to your frontend origin
   methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "new-api-user"],
 });
 
 await app.register(routes);
+await app.register(tokenRoutes);
+await app.register(uploadRoutes);
 
 const port = Number(process.env.PORT || 3001);
 

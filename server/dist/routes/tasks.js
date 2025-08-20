@@ -2,7 +2,7 @@ import { z } from "zod";
 import { dispatchGenerate } from "../adapters/index.js";
 const tasks = new Map();
 const CreateSchema = z.object({
-    model: z.enum(["jimeng-t2i", "jimeng-i2i", "gpt-image-1"]),
+    model: z.enum(["jimeng-t2i", "gpt-image-1"]),
     prompt: z.string().min(1),
     provider: z.string().optional(), // 兼容前端现有字段
     params: z
@@ -18,7 +18,7 @@ const CreateSchema = z.object({
         // gpt-image-1 特有
         mask: z.string().optional(),
         n: z.number().optional(),
-        quality: z.enum(["high", "medium", "low", "auto"]).optional(),
+        quality: z.enum(["high", "medium", "low"]).optional(),
     })
         .optional(),
 });
@@ -52,6 +52,17 @@ export default async function routes(app) {
     app.get("/api/tasks/:id", async (req, res) => {
         const id = req.params?.id;
         const t = tasks.get(id);
+        if (!t)
+            return res.status(404).send("not found");
+        res.send(t);
+    });
+    // 处理查询参数格式的GET请求 /api/tasks?taskId=xxx
+    app.get("/api/tasks", async (req, res) => {
+        const taskId = req.query?.taskId;
+        if (!taskId) {
+            return res.status(400).send("Missing taskId parameter");
+        }
+        const t = tasks.get(taskId);
         if (!t)
             return res.status(404).send("not found");
         res.send(t);

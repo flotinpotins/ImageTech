@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -20,7 +20,8 @@ import {
   pollTaskStatus, 
   validateForm, 
   delay,
-  generateId
+  generateId,
+  openImage
 } from '@/lib/utils';
 import { MASK_TEMPLATES, generateMaskForSize } from '@/lib/maskTemplates';
 import {
@@ -55,6 +56,7 @@ interface SingleGenerationProps {
     selectedPromptTypes: string[];
   };
   onStateChange: (state: any) => void;
+  onGenerationComplete?: () => void;
 }
 
 export function SingleGeneration({
@@ -66,6 +68,7 @@ export function SingleGeneration({
   apiKey,
   state,
   onStateChange,
+  onGenerationComplete,
 }: SingleGenerationProps) {
   const { isGenerating, progress, result, showSaveDialog, presetTitle, previewImage } = state;
   const { toast } = useToast();
@@ -81,7 +84,6 @@ export function SingleGeneration({
 
   const aspectRatio = getAspectRatioFromSize(form.size);
 
-  const [progressInterval, setProgressInterval] = useState<NodeJS.Timeout | null>(null);
   const setState = (updates: any) => {
     onStateChange((prev: any) => ({ ...prev, ...updates }));
   };
@@ -89,15 +91,6 @@ export function SingleGeneration({
   const updateForm = (updates: Partial<SingleGenerationForm>) => {
     onFormChange({ ...form, ...updates });
   };
-
-  // 清理定时器
-  useEffect(() => {
-    return () => {
-      if (progressInterval) {
-        clearInterval(progressInterval);
-      }
-    };
-  }, [progressInterval]);
 
   const handleGenerate = async () => {
     // 表单验证
@@ -127,29 +120,14 @@ export function SingleGeneration({
     onAddHistory(historyItem);
 
     try {
-      // 模拟真实的进度条动画
-      const simulateProgress = () => {
-        let currentProgress = 0;
-        const interval = setInterval(() => {
-          currentProgress += Math.random() * 15 + 5; // 每次增加5-20%
-          if (currentProgress >= 95) {
-            currentProgress = 95; // 在95%停住，等待真实结果
-            clearInterval(interval);
-          }
-          setState({ progress: Math.min(currentProgress, 95) });
-        }, 300 + Math.random() * 200); // 300-500ms间隔
-        
-        return interval;
-      };
-      
-      const interval = simulateProgress();
-      setProgressInterval(interval);
+      // 初始化进度
+      setState({ progress: 0 });
       
       // 模拟最少2秒的加载时间
       const startTime = Date.now();
       
       // 构建请求
-      const request = buildTaskRequest(form);
+      const request = await buildTaskRequest(form);
       
       // 创建任务
       const createResponse = await createTask(request, apiKey);
@@ -164,15 +142,15 @@ export function SingleGeneration({
         createResponse.id,
         () => {
           // 真实API的进度更新会被我们的模拟进度覆盖
+        },
+        60, // 保持默认最大尝试次数
+        3000, // 增加轮询间隔到3000ms，与批量生成保持一致
+        (progress) => {
+          setState({ progress });
         }
       );
       
-      // 清除进度模拟
-      if (progressInterval) {
-        clearInterval(progressInterval);
-        setProgressInterval(null);
-      }
-      
+         
       // 确保最少2秒的加载时间
       const elapsed = Date.now() - startTime;
       if (elapsed < 2000) {
@@ -196,6 +174,9 @@ export function SingleGeneration({
           title: '生成成功',
           description: '图片已生成完成',
         });
+        
+        // 生成完成后刷新余额
+        onGenerationComplete?.();
       } else {
         toast({
           title: '生成失败',
@@ -205,12 +186,6 @@ export function SingleGeneration({
       }
     } catch (error) {
       console.error('生成失败:', error);
-      
-      // 清除进度模拟
-      if (progressInterval) {
-        clearInterval(progressInterval);
-        setProgressInterval(null);
-      }
       
       toast({
         title: '生成失败',
@@ -233,12 +208,6 @@ export function SingleGeneration({
   };
 
   const handleStop = () => {
-    // 清除进度动画
-    if (progressInterval) {
-      clearInterval(progressInterval);
-      setProgressInterval(null);
-    }
-    
     setState({ isGenerating: false, progress: 0, result: null });
     
     toast({
@@ -312,10 +281,10 @@ export function SingleGeneration({
 
         {/* 提示词设置 */}
         <details className="border rounded-lg p-3 text-sm">
-          <summary className="cursor-pointer font-medium text-sm mb-2">附加提示词</summary>
+          <summary className="cursor-pointer font-medium text-sm mb-2 text-gray-500">附加提示词</summary>
           <div className="space-y-3 mt-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium">前置提示词 (选填)</label>
+              <label className="text-xs font-medium text-gray-500">前置提示词 (选填)</label>
               <Textarea
                 placeholder="添加到每个提示词前面的内容，如画面风格，镜头角度等"
                 value={prependPrompt}
@@ -325,7 +294,7 @@ export function SingleGeneration({
             </div>
             
             <div className="space-y-1">
-              <label className="text-xs font-medium">后置提示词 (选填)</label>
+              <label className="text-xs font-medium text-gray-500">后置提示词 (选填)</label>
               <Textarea
                 placeholder="添加到每个提示词后面的内容，如画面效果，风格词等"
                 value={appendPrompt}
@@ -374,7 +343,7 @@ export function SingleGeneration({
                 onChange={(e) => setUseCustomNaming(e.target.checked)}
                 className="rounded"
               />
-              <label htmlFor="useCustomNaming" className="text-sm">自定义图片保存名称</label>
+              <label htmlFor="useCustomNaming" className="text-sm text-gray-500">自定义图片保存名称</label>
             </div>
             
             {useCustomNaming && (
@@ -428,41 +397,44 @@ export function SingleGeneration({
               <p className="text-xs text-muted-foreground mt-1">提示：上传图片则自动走“图像编辑/修补”；不上传则为“文本生图”。</p>
             </div>
 
-            <div>
-              <label className="text-sm font-medium">蒙版（mask，可选）</label>
-              <div className="mt-2">
-                <Select
-                  value={form.mask ? (MASK_TEMPLATES.find(t => t.dataUrl === form.mask)?.id || 'custom') : 'none'}
-                  onValueChange={(value) => {
-                    if (value === 'none') {
-                      updateForm({ mask: undefined });
-                      return;
-                    }
-                    // 根据当前尺寸生成相同比例的蒙版
-                    const match = form.size.match(/^(\d+)x(\d+)$/);
-                    const [w, h] = match ? [parseInt(match[1]), parseInt(match[2])] : [1024, 1024];
-                    const dataUrl = generateMaskForSize(value, w, h);
-                    updateForm({ mask: dataUrl });
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择蒙版模板" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MASK_TEMPLATES.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {form.mask && (
+            {/* 蒙版功能 - 暂时隐藏 */}
+            {false && (
+              <div>
+                <label className="text-sm font-medium">蒙版（mask，可选）</label>
                 <div className="mt-2">
-                  <img src={form.mask} alt="蒙版预览" className="w-full h-32 object-contain border rounded" />
-                  <Button variant="outline" size="sm" className="mt-2" onClick={() => updateForm({ mask: undefined })}>移除蒙版</Button>
+                  <Select
+                    value={form.mask ? (MASK_TEMPLATES.find(t => t.dataUrl === form.mask)?.id || 'custom') : 'none'}
+                    onValueChange={(value) => {
+                      if (value === 'none') {
+                        updateForm({ mask: undefined });
+                        return;
+                      }
+                      // 根据当前尺寸生成相同比例的蒙版
+                      const match = form.size.match(/^(\d+)x(\d+)$/);
+                      const [w, h] = match ? [parseInt(match[1]), parseInt(match[2])] : [1024, 1024];
+                      const dataUrl = generateMaskForSize(value, w, h);
+                      updateForm({ mask: dataUrl });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择蒙版模板" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MASK_TEMPLATES.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-              <p className="text-xs text-muted-foreground mt-1">要求：尺寸会根据当前选择的尺寸自动生成；透明区域为可编辑区域。</p>
-            </div>
+                {form.mask && (
+                  <div className="mt-2">
+                    <img src={form.mask} alt="蒙版预览" className="w-full h-32 object-contain border rounded" />
+                    <Button variant="outline" size="sm" className="mt-2" onClick={() => updateForm({ mask: undefined })}>移除蒙版</Button>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground mt-1">要求：尺寸会根据当前选择的尺寸自动生成；透明区域为可编辑区域。</p>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -479,11 +451,10 @@ export function SingleGeneration({
               <div>
                 <label className="text-sm font-medium">质量（quality）</label>
                 <select
-                  value={form.quality || 'auto'}
+                  value={form.quality || 'medium'}
                   onChange={(e) => updateForm({ quality: e.target.value as any })}
                   className="w-full px-3 py-2 border rounded-md"
                 >
-                  <option value="auto">auto</option>
                   <option value="high">high</option>
                   <option value="medium">medium</option>
                   <option value="low">low</option>
@@ -512,17 +483,8 @@ export function SingleGeneration({
           </div>
         )}
 
-        {form.model === 'jimeng-i2i' && (
-          <div className="space-y-2">
-            <label className="text-sm font-medium">输入图片（图生图，至少1张）</label>
-            <ImageUpload
-              images={form.images || []}
-              onChange={(images) => updateForm({ images })}
-              maxImages={4}
-            />
-            <p className="text-xs text-muted-foreground">支持 JPG、PNG、WebP、GIF，最大 10MB。至少上传一张。</p>
-          </div>
-        )}
+
+
 
         {/* 操作按钮 */}
         <div className="flex gap-2">
@@ -678,7 +640,20 @@ export function SingleGeneration({
                         <img
                           src={url}
                           alt={`生成结果 ${index + 1}`}
-                          className="w-full h-full object-contain"
+                          className="w-full h-full object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => openImage(url, {
+                            prompt: form.prompt,
+                            usePromptAsFilename: state.useCustomNaming,
+                            imageNaming: {
+                              enabled: state.useCustomNaming,
+                              selectedOptions: state.selectedPromptTypes
+                            },
+                            prependPrompt: state.prependPrompt,
+                            appendPrompt: state.appendPrompt,
+                            imageFormat: form.imageFormat,
+                            imageList: result.outputUrls,
+                            currentIndex: index
+                          })}
                           onError={(e) => {
                             console.error('图片加载失败:', url);
                             (e.target as HTMLImageElement).src = '/placeholder-ai.svg';

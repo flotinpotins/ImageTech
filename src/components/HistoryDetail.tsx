@@ -10,7 +10,6 @@ interface HistoryDetailProps {
 
 const modelLabels = {
   'jimeng-t2i': '即梦·文生图',
-  'jimeng-i2i': '即梦·图生图',
   'gpt-image-1': 'GPT·图像生成/编辑',
   'doubao-seededit-3-0-i2i-250628': '豆包·图像编辑',
 } as const;
@@ -82,7 +81,9 @@ export function HistoryDetail({ item }: HistoryDetailProps) {
                 prompt: item.prompt,
                 usePromptAsFilename: true,
                 imageFormat: 'png',
-                taskIndex: 1
+                taskIndex: 1,
+                imageList: item.result?.outputUrls || [firstUrl],
+                currentIndex: 0
               })} className="h-7 px-2 text-xs">
                 <ExternalLink className="h-3.5 w-3.5 mr-1" /> 打开
               </Button>
@@ -188,7 +189,9 @@ export function HistoryDetail({ item }: HistoryDetailProps) {
                       prompt: item.prompt,
                       usePromptAsFilename: true,
                       imageFormat: 'png',
-                      taskIndex: index + 1
+                      taskIndex: index + 1,
+                      imageList: item.result?.outputUrls || [url],
+                      currentIndex: index
                     })}
                     className="flex-1 text-xs"
                   >

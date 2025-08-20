@@ -84,14 +84,7 @@ export const officialWorkflows: OfficialWorkflow[] = [
         guidanceScale: 7.5,
         previewImage: '/placeholder-data.svg'
       },
-      {
-        id: 'ai-artwork',
-        title: 'AI艺术创作',
-        model: 'jimeng-i2i',
-        prompt: 'AI艺术风格，抽象艺术，创意设计，现代艺术风格',
-        size: '1024x1024',
-        previewImage: '/placeholder-ai.svg'
-      }
+      
     ]
   }
 ];

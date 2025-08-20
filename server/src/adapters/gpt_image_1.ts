@@ -7,7 +7,7 @@ export type GPTImageParams = {
   mask?: string;      // dataURL (PNG)
   size?: string;      // "1024x1024"|"1536x1024"|"1024x1536"|"auto"
   n?: number;         // 1-10, 默认 1
-  quality?: string;   // "high"|"medium"|"low"|"auto"
+  quality?: string;   // "high"|"medium"|"low"
   imageFormat?: string; // "png"|"jpg", 默认 "png"
 };
 
@@ -80,12 +80,12 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     form.append('model', 'gpt-image-1');
     // 移除 response_format 参数，因为提供商不支持
     
-    if (p.size && p.size !== 'adaptive') {
-      form.append('size', p.size === 'auto' ? 'auto' : p.size);
+    if (p.size && p.size !== 'adaptive' && p.size !== 'auto') {
+      form.append('size', p.size);
     }
     // 总是传递 n 参数，默认为 1
     form.append('n', (p.n || 1).toString());
-    // 注意：quality 在 edits 模式下可能不被支持，这里不传递以避免提供商错误
+    // 注意：quality 在图像编辑模式（edits）下不被支持，不传递以避免提供商错误
     
     body = form;
     headers = {
@@ -102,14 +102,12 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
       // 移除 response_format 参数，因为提供商不支持
     };
     
-    if (p.size && p.size !== 'adaptive') {
-      jsonBody.size = p.size === 'auto' ? 'auto' : p.size;
+    if (p.size && p.size !== 'adaptive' && p.size !== 'auto') {
+      jsonBody.size = p.size;
     }
     // 总是传递 n 参数，默认为 1
     jsonBody.n = p.n || 1;
-    if (p.quality) {
-      jsonBody.quality = p.quality;
-    }
+    // 为避免供应商参数不兼容，暂不传递 quality 字段
     
     body = JSON.stringify(jsonBody);
   }
