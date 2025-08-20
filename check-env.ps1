@@ -11,28 +11,32 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 Write-Host "检查主项目环境变量..." -ForegroundColor Yellow
-if (Test-Path ".env") {
-    Write-Host "✓ 主项目 .env 文件存在" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "主项目环境变量内容:" -ForegroundColor White
-    Get-Content ".env" | ForEach-Object { Write-Host $_ -ForegroundColor Gray }
-    Write-Host ""
-} else {
-    Write-Host "✗ 主项目 .env 文件不存在" -ForegroundColor Red
-    Write-Host ""
-}
+try {
+    if (Test-Path ".env") {
+        Write-Host "✓ 主项目 .env 文件存在" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "主项目环境变量内容:" -ForegroundColor White
+        Get-Content ".env" | ForEach-Object { Write-Host $_ -ForegroundColor Gray }
+        Write-Host ""
+    } else {
+        Write-Host "✗ 主项目 .env 文件不存在" -ForegroundColor Red
+        Write-Host ""
+    }
+} catch {}
 
 Write-Host "检查服务器环境变量..." -ForegroundColor Yellow
-if (Test-Path "server\.env") {
-    Write-Host "✓ 服务器 .env 文件存在" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "服务器环境变量内容:" -ForegroundColor White
-    Get-Content "server\.env" | ForEach-Object { Write-Host $_ -ForegroundColor Gray }
-    Write-Host ""
-} else {
-    Write-Host "✗ 服务器 .env 文件不存在" -ForegroundColor Red
-    Write-Host ""
-}
+try {
+    if (Test-Path "server\.env") {
+        Write-Host "✓ 服务器 .env 文件存在" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "服务器环境变量内容:" -ForegroundColor White
+        Get-Content "server\.env" | ForEach-Object { Write-Host $_ -ForegroundColor Gray }
+        Write-Host ""
+    } else {
+        Write-Host "✗ 服务器 .env 文件不存在" -ForegroundColor Red
+        Write-Host ""
+    }
+} catch {}
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "令牌余额查询功能配置说明:" -ForegroundColor Cyan

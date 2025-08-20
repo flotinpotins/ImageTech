@@ -30,25 +30,6 @@ function getFileExtension(mimeType: string): string {
   return ext === 'jpeg' ? 'jpg' : ext;
 }
 
-// 重试配置
-const RETRY_CONFIG = {
-  maxRetries: 2, // 减少重试次数
-  baseDelay: 500, // 减少初始延迟到0.5秒
-  maxDelay: 3000, // 减少最大延迟到3秒
-  retryableStatuses: [502, 503, 504, 429] // 可重试的HTTP状态码
-};
-
-// 延迟函数
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// 计算重试延迟（指数退避）
-function getRetryDelay(attempt: number): number {
-  const delay = RETRY_CONFIG.baseDelay * Math.pow(2, attempt);
-  return Math.min(delay, RETRY_CONFIG.maxDelay);
-}
-
 export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
   // 添加详细的参数日志
   console.log('=== GPT Image Generation Request ===');
@@ -98,8 +79,8 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     form.append('model', 'gpt-image-1');
     // 移除 response_format 参数，因为提供商不支持
     
-    if (p.size && p.size !== 'adaptive') {
-      form.append('size', p.size === 'auto' ? 'auto' : p.size);
+    if (p.size && p.size !== 'adaptive' && p.size !== 'auto') {
+      form.append('size', p.size);
     }
     // 总是传递 n 参数，默认为 1
     form.append('n', (p.n || 1).toString());
@@ -123,105 +104,74 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
       // 移除 response_format 参数，因为提供商不支持
     };
     
-    if (p.size && p.size !== 'adaptive') {
-      jsonBody.size = p.size === 'auto' ? 'auto' : p.size;
+    if (p.size && p.size !== 'adaptive' && p.size !== 'auto') {
+      jsonBody.size = p.size;
     }
     // 总是传递 n 参数，默认为 1
     jsonBody.n = p.n || 1;
-    if (p.quality) {
-      jsonBody.quality = p.quality;
-    }
+    // 为避免供应商参数不兼容，暂不传递 quality 字段
     
     body = JSON.stringify(jsonBody);
   }
 
-  // 带重试的请求函数
-  async function makeRequest(attempt: number = 0): Promise<{ urls: string[]; seed: undefined }> {
-    const ctl = new AbortController();
-    const timeout = setTimeout(() => ctl.abort(), 60_000); // 减少超时到60秒
-    
-    try {
-      console.log(`=== GPT API Request Attempt ${attempt + 1}/${RETRY_CONFIG.maxRetries + 1} ===`);
-      console.log(`Request URL: ${url}`);
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body,
-        signal: ctl.signal,
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => response.statusText);
-        console.error('=== GPT Image API Error ===');
-        console.error('Status:', response.status);
-        console.error('Status Text:', response.statusText);
-        console.error('Error Response:', errorText);
-        console.error('Request URL:', url);
-        console.error('API Key used:', key ? `${key.substring(0, 10)}...` : 'None');
-        console.error('Attempt:', attempt + 1);
-        console.error('============================');
-        
-        // 检查是否为可重试的错误
-        if (RETRY_CONFIG.retryableStatuses.includes(response.status) && attempt < RETRY_CONFIG.maxRetries) {
-          const retryDelay = getRetryDelay(attempt);
-          console.log(`Retrying in ${retryDelay}ms... (attempt ${attempt + 2}/${RETRY_CONFIG.maxRetries + 1})`);
-          await delay(retryDelay);
-          return makeRequest(attempt + 1);
-        }
-        
-        throw new Error(`PROVIDER_${response.status}:${errorText}`);
-      }
-      
-      const result: any = await response.json();
-      
-      // 处理响应数据
-      const data = result.data || [];
-      if (!Array.isArray(data) || data.length === 0) {
-        throw new Error('PROVIDER_EMPTY_RESULTS');
-      }
-      
-      // 处理不同格式的响应数据
-      const imageFormat = p.imageFormat || 'png';
-      const mimeType = imageFormat === 'jpg' ? 'image/jpeg' : 'image/png';
-      const urls = data
-        .map((item: any) => {
-          // 支持 b64_json 和 url 两种格式
-          if (item.b64_json) {
-            return `data:${mimeType};base64,${item.b64_json}`;
-          } else if (item.url) {
-            return item.url;
-          }
-          return null;
-        })
-        .filter(Boolean);
-      
-      if (urls.length === 0) {
-        throw new Error('PROVIDER_NO_VALID_IMAGES');
-      }
-      
-      console.log(`=== GPT API Success on attempt ${attempt + 1} ===`);
-      return { urls, seed: undefined };
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        throw new Error('PROVIDER_TIMEOUT');
-      }
-      
-      // 对于网络错误，也尝试重试
-      if ((err.code === 'ECONNRESET' || err.code === 'ENOTFOUND' || err.message.includes('fetch')) && attempt < RETRY_CONFIG.maxRetries) {
-        const retryDelay = getRetryDelay(attempt);
-        console.log(`Network error, retrying in ${retryDelay}ms... (attempt ${attempt + 2}/${RETRY_CONFIG.maxRetries + 1})`);
-        console.error('Network error:', err.message);
-        await delay(retryDelay);
-        return makeRequest(attempt + 1);
-      }
-      
-      throw err;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
+  // 发送请求
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 300_000); // 300s 超时，处理大图片
   
-  // 执行带重试的请求
-  return await makeRequest();
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      signal: ctl.signal,
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
+      console.error('=== GPT Image API Error ===');
+      console.error('Status:', response.status);
+      console.error('Status Text:', response.statusText);
+      console.error('Error Response:', errorText);
+      console.error('Request URL:', url);
+      console.error('API Key used:', key ? `${key.substring(0, 10)}...` : 'None');
+      console.error('============================');
+      throw new Error(`PROVIDER_${response.status}:${errorText}`);
+    }
+    
+    const result: any = await response.json();
+    
+    // 处理响应数据
+    const data = result.data || [];
+    if (!Array.isArray(data) || data.length === 0) {
+      throw new Error('PROVIDER_EMPTY_RESULTS');
+    }
+    
+    // 处理不同格式的响应数据
+    const imageFormat = p.imageFormat || 'png';
+    const mimeType = imageFormat === 'jpg' ? 'image/jpeg' : 'image/png';
+    const urls = data
+      .map((item: any) => {
+        // 支持 b64_json 和 url 两种格式
+        if (item.b64_json) {
+          return `data:${mimeType};base64,${item.b64_json}`;
+        } else if (item.url) {
+          return item.url;
+        }
+        return null;
+      })
+      .filter(Boolean);
+    
+    if (urls.length === 0) {
+      throw new Error('PROVIDER_NO_VALID_IMAGES');
+    }
+    
+    return { urls, seed: undefined };
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error('PROVIDER_TIMEOUT');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }

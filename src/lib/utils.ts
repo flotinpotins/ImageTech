@@ -180,7 +180,11 @@ export async function createTask(request: CreateTaskRequest, apiKey?: string): P
   });
   
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    let detail = '';
+    try {
+      detail = await response.text();
+    } catch {}
+    throw new Error(`HTTP ${response.status}: ${response.statusText}${detail ? ` - ${detail}` : ''}`);
   }
   
   return response.json();
