@@ -126,14 +126,14 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     if (p.images && p.images[0]) {
       const { buffer, mimeType } = dataURLToBuffer(p.images[0]);
       const ext = getFileExtension(mimeType);
-      const blob = new Blob([buffer], { type: mimeType });
+      const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
       formData.append('image', blob, `image.${ext}`);
     }
     
     if (p.mask) {
       const { buffer, mimeType } = dataURLToBuffer(p.mask);
       const ext = getFileExtension(mimeType);
-      const blob = new Blob([buffer], { type: mimeType });
+      const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
       formData.append('mask', blob, `mask.${ext}`);
     }
     
@@ -231,19 +231,20 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
     }, apiKey);
   }
   
-  if (model === "flux-kontext-multi") {
-    return generateFluxKontextMulti({
-      prompt: payload.prompt,
-      image_urls: payload?.image_urls ?? payload?.params?.image_urls,
-      seed: payload?.seed ?? payload?.params?.seed,
-      guidance_scale: payload?.guidance_scale ?? payload?.params?.guidance_scale,
-      sync_mode: payload?.sync_mode ?? payload?.params?.sync_mode,
-      num_images: payload?.num_images ?? payload?.params?.num_images,
-      safety_tolerance: payload?.safety_tolerance ?? payload?.params?.safety_tolerance,
-      output_format: payload?.output_format ?? payload?.params?.output_format,
-      aspect_ratio: payload?.aspect_ratio ?? payload?.params?.aspect_ratio,
-    }, apiKey);
-  }
+  // flux-kontext-multi model has been removed
+  // if (model === "flux-kontext-multi") {
+  //   return generateFluxKontextMulti({
+  //     prompt: payload.prompt,
+  //     image_urls: payload?.image_urls ?? payload?.params?.image_urls,
+  //     seed: payload?.seed ?? payload?.params?.seed,
+  //     guidance_scale: payload?.guidance_scale ?? payload?.params?.guidance_scale,
+  //     sync_mode: payload?.sync_mode ?? payload?.params?.sync_mode,
+  //     num_images: payload?.num_images ?? payload?.params?.num_images,
+  //     safety_tolerance: payload?.safety_tolerance ?? payload?.params?.safety_tolerance,
+  //     output_format: payload?.output_format ?? payload?.params?.output_format,
+  //     aspect_ratio: payload?.aspect_ratio ?? payload?.params?.aspect_ratio,
+  //   }, apiKey);
+  // }
   
   throw new Error(`UNSUPPORTED_MODEL:${model}`);
 }

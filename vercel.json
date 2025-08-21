@@ -5,6 +5,18 @@
       "runtime": "@vercel/node@3.0.21"
     }
   },
+  "env": {
+    "TOKEN_API_BASE_URL": "https://ai.comfly.chat",
+    "PROVIDER_BASE_URL": "https://ai.comfly.chat",
+    "PROVIDER_API_KEY": "sk-9Syi1Zv9NCI8o5ry9110F8379c424fAa8514F55b628e7907"
+  },
+  "build": {
+    "env": {
+      "TOKEN_API_BASE_URL": "https://ai.comfly.chat",
+      "PROVIDER_BASE_URL": "https://ai.comfly.chat",
+      "PROVIDER_API_KEY": "sk-9Syi1Zv9NCI8o5ry9110F8379c424fAa8514F55b628e7907"
+    }
+  },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]

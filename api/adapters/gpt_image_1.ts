@@ -65,14 +65,14 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     for (let i = 0; i < editImages.length; i++) {
       const { buffer, mimeType } = dataURLToBuffer(editImages[i]);
       const ext = getFileExtension(mimeType);
-      const blob = new Blob([buffer], { type: mimeType });
+      const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
       form.append('image', blob, `image_${i}.${ext}`);
     }
     
     // 添加 mask (如果有)
     if (p.mask) {
       const { buffer, mimeType } = dataURLToBuffer(p.mask);
-      const blob = new Blob([buffer], { type: mimeType });
+      const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
       form.append('mask', blob, 'mask.png');
     }
     

@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { MASK_TEMPLATES, generateMaskForSize } from '@/lib/maskTemplates';
+// import { MASK_TEMPLATES, generateMaskForSize } from '@/lib/maskTemplates'; // 已移除蒙版功能
 import JSZip from 'jszip';
 
 import { Play, Pause, Square, Download, Upload, RotateCcw, ChevronDown } from 'lucide-react';
@@ -304,8 +304,6 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       imageFormat: (state.imageFormat || 'png') as ImageFormat, // 使用当前选择的图像格式
       // gpt-image-1 专用参数
       ...(currentModel === 'gpt-image-1' && {
-         mask: state.mask || task.parsed.mask,
-         n: state.n || task.parsed.n || 1,
          quality: state.quality || task.parsed.quality || 'medium',
        })
      };
@@ -807,78 +805,26 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
               </div>
             </div>
 
-            {/* gpt-image-1 参数（批量） */}
-            {state.model === 'gpt-image-1' && (
-              <div className="space-y-3">
-                {/* 蒙版选择器 */}
-                <div>
-                  <label className="text-xs font-medium">蒙版（mask，可选）</label>
-                  <div className="mt-1">
-                    <Select
-                      value={state.mask ? (MASK_TEMPLATES.find(t => t.dataUrl === state.mask)?.id || 'custom') : 'none'}
-                      onValueChange={(value) => {
-                        if (value === 'none') {
-                          setState({ mask: undefined });
-                          return;
-                        }
-                        // 根据当前尺寸生成相同比例的蒙版
-                        const match = (state.size || '1024x1024').match(/^(\d+)x(\d+)$/);
-                        const [w, h] = match ? [parseInt(match[1]), parseInt(match[2])] : [1024, 1024];
-                        const dataUrl = generateMaskForSize(value, w, h);
-                        setState({ mask: dataUrl });
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="选择蒙版模板" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MASK_TEMPLATES.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {state.mask && (
-                    <div className="mt-1">
-                      <img src={state.mask} alt="蒙版预览" className="w-full h-24 object-contain border rounded" />
-                      <Button variant="outline" size="sm" className="mt-1 h-6 px-2 text-xs" onClick={() => setState({ mask: undefined })}>移除蒙版</Button>
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">要求：尺寸会根据当前选择的尺寸自动生成；透明区域为可编辑区域。</p>
-                </div>
-                
-                {/* 生成数量 n 与 质量 quality */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs font-medium">生成数量 n</label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={state.n ?? 1}
-                      onChange={(e) => setState({ n: Math.max(1, Math.min(10, Number(e.target.value))) })}
-                      className="h-8 text-xs"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">范围 1-10，默认 1</p>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium">质量（quality）</label>
-                    <select
-                      value={state.quality || 'medium'}
-                      onChange={(e) => setState({ quality: e.target.value })}
-                      className="w-full px-2 py-1 border rounded-md h-8 text-xs"
-                    >
-                      <option value="high">high</option>
-                      <option value="medium">medium</option>
-                      <option value="low">low</option>
-                    </select>
-                    <p className="text-xs text-muted-foreground mt-1">仅 gpt-image-1 支持</p>
-                  </div>
-                </div>
-              </div>
-            )}
+
           </div>
         </details>
+
+        {/* 质量选项 - 独立显示，仅在GPT模型下可见 */}
+        {state.model === 'gpt-image-1' && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">质量（quality）</label>
+            <select
+              value={state.quality || 'medium'}
+              onChange={(e) => setState({ quality: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+            >
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+            </select>
+            <p className="text-xs text-muted-foreground">仅 gpt-image-1 支持</p>
+          </div>
+        )}
 
         {/* 生成尺寸选择 */}
         <div className="space-y-4">
@@ -998,64 +944,50 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
           </Button>
         </div>
 
-        {/* 生成模式选择 - 仅在解析完成且状态为idle时显示 */}
-        {tasks.length > 0 && status === 'idle' && (
-          <div className="space-y-4">
-            <div className="space-y-3">
-              <h3 className="text-lg font-medium">选择生成模式</h3>
-              <div className="grid grid-cols-1 gap-3">
-                <Button 
-                  onClick={handleConservativeMode}
-                  className="h-12 text-left justify-start"
-                  variant="outline"
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  <div>
-                    <div className="font-medium">保守模式：并发数1</div>
-                    <div className="text-xs text-muted-foreground">稳定生成，适合高质量要求</div>
-                  </div>
-                </Button>
-                <Button 
-                  onClick={handleStandardMode}
-                  className="h-12 text-left justify-start"
-                  variant="outline"
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  <div>
-                    <div className="font-medium">标准模式：并发数2</div>
-                    <div className="text-xs text-muted-foreground">平衡速度与稳定性</div>
-                  </div>
-                </Button>
-                <Button 
-                  onClick={handleFullSpeedMode}
-                  className="h-12 text-left justify-start"
-                  variant="outline"
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  <div>
-                    <div className="font-medium">全速模式：并发数5</div>
-                    <div className="text-xs text-muted-foreground">最快速度，适合批量处理</div>
-                  </div>
-                </Button>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setState({
-                      tasks: [],
-                      status: 'idle',
-                      progress: { completed: 0, total: 0 },
-                    });
-                  }}
-                >
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  重置
-                </Button>
-              </div>
+        {/* 生成模式选择 - 常驻显示，解析前禁用 */}
+        <div className="space-y-4">
+          <div className="space-y-3">
+            <h3 className="text-lg font-medium">选择生成模式</h3>
+            <div className="grid grid-cols-1 gap-3">
+              <Button 
+                onClick={handleConservativeMode}
+                className="h-12 text-left justify-start"
+                variant="outline"
+                disabled={tasks.length === 0 || status === 'running' || status === 'paused'}
+              >
+                <Play className="h-4 w-4 mr-2" />
+                <div>
+                  <div className="font-medium">保守模式：并发数1</div>
+                  <div className="text-xs text-muted-foreground">稳定生成，适合高质量要求</div>
+                </div>
+              </Button>
+              <Button 
+                onClick={handleStandardMode}
+                className="h-12 text-left justify-start"
+                variant="outline"
+                disabled={tasks.length === 0 || status === 'running' || status === 'paused'}
+              >
+                <Play className="h-4 w-4 mr-2" />
+                <div>
+                  <div className="font-medium">标准模式：并发数2</div>
+                  <div className="text-xs text-muted-foreground">平衡速度与稳定性</div>
+                </div>
+              </Button>
+              <Button 
+                onClick={handleFullSpeedMode}
+                className="h-12 text-left justify-start"
+                variant="outline"
+                disabled={tasks.length === 0 || status === 'running' || status === 'paused'}
+              >
+                <Play className="h-4 w-4 mr-2" />
+                <div>
+                  <div className="font-medium">全速模式：并发数5</div>
+                  <div className="text-xs text-muted-foreground">最快速度，适合批量处理</div>
+                </div>
+              </Button>
             </div>
           </div>
-        )}
+        </div>
         
         {/* 执行控制 - 仅在运行、暂停、完成状态时显示 */}
         {tasks.length > 0 && status !== 'idle' && (
