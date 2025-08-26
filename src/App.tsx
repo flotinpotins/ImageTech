@@ -266,10 +266,7 @@ function App() {
     setMyPresets(prev => prev.filter(preset => preset.id !== presetId));
   }, []);
 
-  // 切换到单次生成
-  const handleSwitchToSingle = useCallback(() => {
-    setActiveTab('single');
-  }, []);
+
 
   // 导入预设
   const handleImportPresets = useCallback((importedPresets: Preset[]) => {
@@ -377,7 +374,6 @@ function App() {
                   myPresets={myPresets}
                   onApplyAndGenerate={handleApplyAndGenerate}
                   onDeletePreset={handleDeletePreset}
-                  onSwitchToSingle={handleSwitchToSingle}
                   onImportPresets={handleImportPresets}
                 />
               </TabsContent>

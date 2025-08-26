@@ -162,8 +162,104 @@ export async function buildTaskRequest(form: SingleGenerationForm): Promise<Crea
   };
 }
 
-// API调用函数
-export async function createTask(request: CreateTaskRequest, apiKey?: string): Promise<CreateTaskResponse> {
+// 错误类型定义
+interface ApiError extends Error {
+  status?: number;
+  code?: string;
+  isRetryable?: boolean;
+}
+
+// 判断错误是否可重试
+function isRetryableError(error: any): boolean {
+  if (error.status) {
+    // 5xx 服务器错误通常可重试
+    if (error.status >= 500 && error.status < 600) return true;
+    // 429 限流错误可重试
+    if (error.status === 429) return true;
+    // 408 请求超时可重试
+    if (error.status === 408) return true;
+  }
+  
+  // 网络错误可重试
+  if (error.name === 'TypeError' && error.message.includes('fetch')) return true;
+  if (error.message.includes('network') || error.message.includes('timeout')) return true;
+  
+  return false;
+}
+
+// 创建友好的错误信息
+function createFriendlyErrorMessage(error: any): string {
+  if (error.status) {
+    switch (error.status) {
+      case 400:
+        return '请求参数有误，请检查输入内容';
+      case 401:
+        return 'API密钥无效或已过期';
+      case 403:
+        return '没有权限访问此服务';
+      case 404:
+        return '服务接口不存在';
+      case 429:
+        return '请求过于频繁，请稍后再试';
+      case 500:
+        return '服务器内部错误，请稍后重试';
+      case 502:
+        return '服务暂时不可用，正在重试...';
+      case 503:
+        return '服务暂时维护中，请稍后重试';
+      case 504:
+        return '服务响应超时，请稍后重试';
+      default:
+        if (error.status >= 500) {
+          return '服务器错误，请稍后重试';
+        }
+        return `请求失败 (${error.status})`;
+    }
+  }
+  
+  if (error.message.includes('fetch')) {
+    return '网络连接失败，请检查网络连接';
+  }
+  
+  return error.message || '未知错误';
+}
+
+// 带超时的fetch函数
+async function fetchWithTimeout(url: string, options: globalThis.RequestInit, timeoutMs: number = 60000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      const timeoutError = new Error(`请求超时 (${timeoutMs}ms)`) as ApiError;
+      timeoutError.status = 408;
+      timeoutError.isRetryable = true;
+      throw timeoutError;
+    }
+    throw error;
+  }
+}
+
+// API调用函数（增强版，支持重试和超时）
+export async function createTask(
+  request: CreateTaskRequest, 
+  apiKey?: string,
+  options?: {
+    maxRetries?: number;
+    timeoutMs?: number;
+    onRetry?: (attempt: number, error: ApiError) => void;
+  }
+): Promise<CreateTaskResponse> {
+  const { maxRetries = 3, timeoutMs = 180000, onRetry } = options || {};
+  
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
@@ -173,21 +269,73 @@ export async function createTask(request: CreateTaskRequest, apiKey?: string): P
     headers['x-api-key'] = apiKey;
   }
   
-  const response = await fetch('/api/tasks', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(request)
-  });
+  let lastError: ApiError;
   
-  if (!response.ok) {
-    let detail = '';
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      detail = await response.text();
-    } catch {}
-    throw new Error(`HTTP ${response.status}: ${response.statusText}${detail ? ` - ${detail}` : ''}`);
+      const response = await fetchWithTimeout('/api/tasks', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(request)
+      }, timeoutMs);
+      
+      if (!response.ok) {
+        let detail = '';
+        try {
+          detail = await response.text();
+        } catch {
+          // 忽略解析错误，使用默认错误信息
+        }
+        
+        const error = new Error(`HTTP ${response.status}: ${response.statusText}${detail ? ` - ${detail}` : ''}`) as ApiError;
+        error.status = response.status;
+        error.isRetryable = isRetryableError(error);
+        
+        // 如果是最后一次尝试或错误不可重试，直接抛出
+        if (attempt === maxRetries || !error.isRetryable) {
+          error.message = createFriendlyErrorMessage(error);
+          throw error;
+        }
+        
+        lastError = error;
+        
+        // 通知重试回调
+        if (onRetry) {
+          onRetry(attempt + 1, error);
+        }
+        
+        // 计算重试延迟（指数退避）
+        const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      return response.json();
+    } catch (error) {
+      const apiError = error as ApiError;
+      
+      // 如果是最后一次尝试或错误不可重试，直接抛出
+      if (attempt === maxRetries || !isRetryableError(apiError)) {
+        apiError.message = createFriendlyErrorMessage(apiError);
+        throw apiError;
+      }
+      
+      lastError = apiError;
+      
+      // 通知重试回调
+      if (onRetry) {
+        onRetry(attempt + 1, apiError);
+      }
+      
+      // 计算重试延迟（指数退避）
+      const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
   
-  return response.json();
+  // 如果所有重试都失败了
+  lastError!.message = createFriendlyErrorMessage(lastError!);
+  throw lastError!;
 }
 
 export async function getTask(taskId: string): Promise<GetTaskResponse> {
@@ -198,6 +346,62 @@ export async function getTask(taskId: string): Promise<GetTaskResponse> {
   }
   
   return response.json();
+}
+
+// 服务状态检查
+export interface ServiceStatus {
+  status: 'healthy' | 'degraded' | 'down';
+  responseTime: number;
+  lastChecked: number;
+  error?: string;
+}
+
+// 检查服务健康状态
+export async function checkServiceHealth(): Promise<ServiceStatus> {
+  const startTime = Date.now();
+  
+  try {
+    const response = await fetchWithTimeout('/api/health', {
+      method: 'GET',
+    }, 5000); // 5秒超时
+    
+    const responseTime = Date.now() - startTime;
+    
+    if (response.ok) {
+      return {
+        status: responseTime > 3000 ? 'degraded' : 'healthy',
+        responseTime,
+        lastChecked: Date.now()
+      };
+    } else {
+      return {
+        status: 'degraded',
+        responseTime,
+        lastChecked: Date.now(),
+        error: `HTTP ${response.status}`
+      };
+    }
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    return {
+      status: 'down',
+      responseTime,
+      lastChecked: Date.now(),
+      error: error instanceof Error ? error.message : '服务不可用'
+    };
+  }
+}
+
+// 简化的服务状态检查（用于快速检测）
+export async function quickServiceCheck(): Promise<boolean> {
+  try {
+    const response = await fetchWithTimeout('/api/health', {
+      method: 'HEAD', // 使用HEAD请求减少数据传输
+    }, 5000);
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 // 轮询任务状态
@@ -716,7 +920,7 @@ export function validateImportedPresets(data: any, filename?: string): { isValid
 
 // 处理文件导入
 export function importPresetsFromFile(file: File, filename?: string): Promise<{ isValid: boolean; errors: string[]; presets?: any[] }> {
-  return new Promise((resolve, _reject) => {
+  return new Promise((resolve) => {
     if (!file.type.includes('json')) {
       resolve({ isValid: false, errors: ['请选择JSON格式的文件'] });
       return;

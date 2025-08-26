@@ -231,20 +231,7 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
     }, apiKey);
   }
   
-  // flux-kontext-multi model has been removed
-  // if (model === "flux-kontext-multi") {
-  //   return generateFluxKontextMulti({
-  //     prompt: payload.prompt,
-  //     image_urls: payload?.image_urls ?? payload?.params?.image_urls,
-  //     seed: payload?.seed ?? payload?.params?.seed,
-  //     guidance_scale: payload?.guidance_scale ?? payload?.params?.guidance_scale,
-  //     sync_mode: payload?.sync_mode ?? payload?.params?.sync_mode,
-  //     num_images: payload?.num_images ?? payload?.params?.num_images,
-  //     safety_tolerance: payload?.safety_tolerance ?? payload?.params?.safety_tolerance,
-  //     output_format: payload?.output_format ?? payload?.params?.output_format,
-  //     aspect_ratio: payload?.aspect_ratio ?? payload?.params?.aspect_ratio,
-  //   }, apiKey);
-  // }
+
   
   throw new Error(`UNSUPPORTED_MODEL:${model}`);
 }

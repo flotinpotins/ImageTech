@@ -1,5 +1,6 @@
-// 去掉“：”前面的内容（包含中文全角冒号和英文半角冒号）
+// 去掉"："前面的内容（包含中文全角冒号和英文半角冒号）
 // 对每一行进行处理：如果包含冒号，则替换为冒号后的内容；否则保持该行不变
+/* global text */
 const lines = text.split(/\r?\n/);
 const processed = lines.map(line => {
   if (!line) return line;

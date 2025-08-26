@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -18,7 +18,6 @@ interface WorkflowPresetsProps {
   myPresets: Preset[];
   onApplyAndGenerate: (preset: Preset | OfficialPreset) => void;
   onDeletePreset: (presetId: string) => void;
-  onSwitchToSingle: () => void;
   onImportPresets: (presets: Preset[]) => void;
 }
 

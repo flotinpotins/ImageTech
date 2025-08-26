@@ -1,0 +1,11 @@
+# 添加更多排除项
+node_modules
+.git
+.trae
+*.log
+.vite
+server/dist
+server/node_modules
+.next
+coverage
+.nyc_output

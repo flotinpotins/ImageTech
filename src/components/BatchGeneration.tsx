@@ -23,7 +23,6 @@ import {
   buildTaskRequest, 
   createTask, 
   pollTaskStatus, 
-  retryWithBackoff, 
   delay, 
   exportErrors,
   validateForm,
@@ -332,17 +331,43 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     onAddHistory(historyItem);
 
     try {
+      console.log(`Starting task ${task.id} execution:`, {
+        taskIndex,
+        model: taskForm.model,
+        prompt: taskForm.prompt?.substring(0, 100) + '...',
+        hasImages: (taskForm.images?.length || 0) > 0
+      });
+      
       updateTask(task.id, { status: 'running' });
       onUpdateHistory(historyId, { status: 'running' });
       
+      console.log(`Building request for task ${task.id}`);
       const request = await buildTaskRequest(taskForm);
-      const createResponse = await createTask(request, apiKey);
+      
+      console.log(`Calling createTask for task ${task.id}`);
+      const createResponse = await createTask(request, apiKey, {
+        maxRetries: 0,
+        timeoutMs: 180000,
+        onRetry: (attempt, error) => {
+          console.log(`Task ${task.id} retry attempt ${attempt}:`, error.message);
+          updateTask(task.id, { 
+            status: 'running',
+            error: `重试中... (${attempt}/3): ${error.message}` 
+          });
+        }
+      });
+      
+      console.log(`Task ${task.id} created successfully, polling status...`, createResponse);
       
       const result = await pollTaskStatus(
         createResponse.id,
         (intermediateResult) => {
           // 实时更新任务状态和结果
-          console.log('Poll update for task', task.id, ':', intermediateResult);
+          console.log(`Poll update for task ${task.id}:`, {
+            status: intermediateResult.status,
+            hasResult: !!intermediateResult.outputUrls,
+            error: intermediateResult.error
+          });
           updateTask(task.id, { 
             status: intermediateResult.status, 
             result: intermediateResult,
@@ -353,7 +378,12 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
         3000 // 增加轮询间隔
       );
       
-      console.log('Final result for task', task.id, ':', result);
+      console.log(`Final result for task ${task.id}:`, {
+        status: result.status,
+        hasOutputUrls: !!result.outputUrls,
+        outputUrlsCount: result.outputUrls?.length || 0,
+        error: result.error
+      });
       
       updateTask(task.id, { 
         status: result.status, 
@@ -367,16 +397,36 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
         result: result,
       });
     } catch (error) {
+      console.error(`Task ${task.id} execution failed:`, error);
+      
+      let errorMessage = '未知错误';
+       
+       if (error instanceof Error) {
+         errorMessage = error.message;
+         
+         // 检查是否是网络相关错误
+         if (error.message.includes('fetch') || 
+             error.message.includes('网络') || 
+             error.message.includes('ERR_ABORTED') ||
+             error.message.includes('ERR_NETWORK') ||
+             error.message.includes('Failed to fetch')) {
+           errorMessage = '网络连接失败，请检查网络连接';
+         } else if (error.message.includes('timeout') || error.message.includes('超时')) {
+           errorMessage = '请求超时，请稍后重试';
+         }
+       }
+      
       updateTask(task.id, { 
         status: 'failed', 
-        error: error instanceof Error ? error.message : '未知错误' 
+        error: errorMessage
       });
+      
       onUpdateHistory(historyId, {
         status: 'failed',
         result: {
           id: '',
           status: 'failed',
-          error: error instanceof Error ? error.message : '未知错误',
+          error: errorMessage,
         },
       });
     }
@@ -438,11 +488,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
             await delay(config.throttleMs);
           }
           
-          // 执行任务（带重试）
-          const taskPromise = retryWithBackoff(
-            () => executeTask(task, taskIndex),
-            config.maxRetries
-          ).finally(() => {
+          // 执行任务（使用createTask内部的重试机制）
+          const taskPromise = executeTask(task, taskIndex).finally(() => {
             executing.delete(taskPromise);
             completedCount++;
             setState({ progress: { completed: completedCount, total: pendingTasks.length } });

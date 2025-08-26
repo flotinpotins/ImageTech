@@ -129,8 +129,18 @@ export function SingleGeneration({
       // 构建请求
       const request = await buildTaskRequest(form);
       
-      // 创建任务
-      const createResponse = await createTask(request, apiKey);
+      // 创建任务（带重试和进度反馈）
+      const createResponse = await createTask(request, apiKey, {
+        maxRetries: 0,
+        timeoutMs: 180000,
+        onRetry: (attempt, error) => {
+          toast({
+            title: `重试中 (${attempt}/3)`,
+            description: `${error.message}，正在重试...`,
+            variant: 'default',
+          });
+        }
+      });
       
       // 更新历史记录状态
       onUpdateHistory(historyId, {
@@ -187,10 +197,68 @@ export function SingleGeneration({
     } catch (error) {
       console.error('生成失败:', error);
       
+      // 根据错误类型提供不同的处理
+      const apiError = error as any;
+      let errorTitle = '生成失败';
+      let errorDescription = '未知错误';
+      let shouldShowRetry = false;
+      
+      if (apiError.status) {
+        switch (apiError.status) {
+          case 400:
+            errorTitle = '参数错误';
+            errorDescription = '请检查输入的提示词和参数设置';
+            break;
+          case 401:
+            errorTitle = 'API密钥错误';
+            errorDescription = 'API密钥无效或已过期，请检查设置';
+            break;
+          case 403:
+            errorTitle = '权限不足';
+            errorDescription = '没有权限访问此服务，请联系管理员';
+            break;
+          case 429:
+            errorTitle = '请求过于频繁';
+            errorDescription = '请稍后再试，或升级您的服务计划';
+            shouldShowRetry = true;
+            break;
+          case 500:
+          case 502:
+          case 503:
+          case 504:
+            errorTitle = '服务暂时不可用';
+            errorDescription = '服务器正在维护或遇到临时问题，请稍后重试';
+            shouldShowRetry = true;
+            break;
+          default:
+            errorDescription = apiError.message || `HTTP ${apiError.status} 错误`;
+        }
+      } else if (apiError.message) {
+        if (apiError.message.includes('timeout') || apiError.message.includes('超时')) {
+          errorTitle = '请求超时';
+          errorDescription = '网络连接超时，请检查网络连接后重试';
+          shouldShowRetry = true;
+        } else if (apiError.message.includes('fetch') || apiError.message.includes('网络')) {
+          errorTitle = '网络错误';
+          errorDescription = '网络连接失败，请检查网络连接';
+          shouldShowRetry = true;
+        } else {
+          errorDescription = apiError.message;
+        }
+      }
+      
       toast({
-        title: '生成失败',
-        description: error instanceof Error ? error.message : '网络错误',
+        title: errorTitle,
+        description: errorDescription,
         variant: 'destructive',
+        action: shouldShowRetry ? (
+          <button 
+            onClick={() => handleGenerate()}
+            className="px-3 py-1 bg-white text-red-600 rounded text-sm hover:bg-gray-50"
+          >
+            重试
+          </button>
+        ) : undefined,
       });
       
       // 更新历史记录为失败状态
@@ -199,7 +267,7 @@ export function SingleGeneration({
         result: {
           id: '',
           status: 'failed' as const,
-          error: error instanceof Error ? error.message : '网络错误',
+          error: errorDescription,
         },
       });
     } finally {

@@ -17,7 +17,7 @@ console.log('Frontend request structure:');
 console.log(JSON.stringify(frontendRequest, null, 2));
 
 // 模拟后端 dispatchGenerate 的参数
-const { model, prompt, params } = frontendRequest;
+const { prompt, params } = frontendRequest;
 const dispatchPayload = { prompt, ...params };
 
 console.log('\nDispatch payload:');
@@ -45,7 +45,7 @@ function testParameterResolution(payload) {
 
 // 测试当前逻辑
 console.log('\n--- Testing Current Logic ---');
-const result = testParameterResolution(dispatchPayload);
+testParameterResolution(dispatchPayload);
 
 // 测试修复后的逻辑
 console.log('\n--- Testing Fixed Logic (direct access) ---');
