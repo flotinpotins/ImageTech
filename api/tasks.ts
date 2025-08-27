@@ -345,11 +345,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           body = {
             model: Array.isArray(fields.model) ? fields.model[0] : fields.model,
             prompt: Array.isArray(fields.prompt) ? fields.prompt[0] : fields.prompt,
-            params: {
-              mode: Array.isArray(fields.mode) ? fields.mode[0] : fields.mode,
-              response_format: Array.isArray(fields.response_format) ? fields.response_format[0] : fields.response_format,
-            }
+            params: {}
           };
+          
+          // Add all other fields to params (except model and prompt)
+          Object.keys(fields).forEach(key => {
+            if (key !== 'model' && key !== 'prompt') {
+              const value = Array.isArray(fields[key]) ? fields[key][0] : fields[key];
+              body.params[key] = value;
+            }
+          });
+          
+          console.log('Parsed body.params:', body.params);
           
           // Handle uploaded image file
           if (files.image) {

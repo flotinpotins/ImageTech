@@ -19,38 +19,87 @@ export function generateId(): string {
   return Math.random().toString(36).substr(2, 9);
 }
 
+// 简单的文件转DataURL（不压缩，避免Trae浏览器环境兼容性问题）
+export function simpleFileToDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    console.log('Converting file to DataURL, file size:', file.size, 'type:', file.type);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      console.log('FileReader success, DataURL length:', result.length);
+      resolve(result);
+    };
+    reader.onerror = (error) => {
+      console.error('FileReader error:', error);
+      reject(error);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 // 压缩图片并转换为DataURL
 export function compressImage(file: File, maxWidth: number = 1920, maxHeight: number = 1080, quality: number = 0.8): Promise<string> {
   return new Promise((resolve, reject) => {
+    console.log('Compressing image, original size:', file.size, 'type:', file.type);
+    
+    // 如果文件已经很小，直接返回不压缩的版本
+    if (file.size <= 1024 * 1024) { // 1MB以下不压缩
+      console.log('File size is small, using simple conversion');
+      return simpleFileToDataURL(file).then(resolve).catch(reject);
+    }
+    
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d')!;
-        
-        // 计算压缩后的尺寸
-        let { width, height } = img;
-        if (width > maxWidth || height > maxHeight) {
-          const ratio = Math.min(maxWidth / width, maxHeight / height);
-          width *= ratio;
-          height *= ratio;
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            console.error('Failed to get canvas context');
+            // 回退到简单转换
+            return simpleFileToDataURL(file).then(resolve).catch(reject);
+          }
+          
+          // 计算压缩后的尺寸
+          let { width, height } = img;
+          console.log('Original image dimensions:', width, 'x', height);
+          
+          if (width > maxWidth || height > maxHeight) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height);
+            width *= ratio;
+            height *= ratio;
+            console.log('Compressed image dimensions:', width, 'x', height);
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          
+          // 绘制压缩后的图片
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // 转换为压缩后的DataURL
+          const compressedDataUrl = canvas.toDataURL(file.type, quality);
+          console.log('Compression complete, new DataURL length:', compressedDataUrl.length);
+          resolve(compressedDataUrl);
+        } catch (error) {
+          console.error('Canvas compression failed:', error);
+          // 回退到简单转换
+          simpleFileToDataURL(file).then(resolve).catch(reject);
         }
-        
-        canvas.width = width;
-        canvas.height = height;
-        
-        // 绘制压缩后的图片
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        // 转换为压缩后的DataURL
-        const compressedDataUrl = canvas.toDataURL(file.type, quality);
-        resolve(compressedDataUrl);
       };
-      img.onerror = reject;
+      img.onerror = (error) => {
+        console.error('Image load failed:', error);
+        // 回退到简单转换
+        simpleFileToDataURL(file).then(resolve).catch(reject);
+      };
       img.src = e.target?.result as string;
     };
-    reader.onerror = reject;
+    reader.onerror = (error) => {
+      console.error('FileReader failed:', error);
+      reject(error);
+    };
     reader.readAsDataURL(file);
   });
 }
@@ -160,6 +209,8 @@ export async function buildTaskRequest(form: SingleGenerationForm): Promise<Crea
         response_format: 'url',
         // 传递模式信息给后端
         mode: mode,
+        // 添加尺寸参数，但排除 'adaptive'
+        size: normalizedSize,
       };
       
       // 只有在图生图模式下才传递图片
@@ -189,7 +240,7 @@ interface ApiError extends Error {
 }
 
 // 判断错误是否可重试
-function isRetryableError(error: any): boolean {
+export function isRetryableError(error: any): boolean {
   if (error.status) {
     // 5xx 服务器错误通常可重试
     if (error.status >= 500 && error.status < 600) return true;
@@ -207,7 +258,7 @@ function isRetryableError(error: any): boolean {
 }
 
 // 创建友好的错误信息
-function createFriendlyErrorMessage(error: any): string {
+export function createFriendlyErrorMessage(error: any): string {
   if (error.status) {
     switch (error.status) {
       case 400:
@@ -221,6 +272,16 @@ function createFriendlyErrorMessage(error: any): string {
       case 429:
         return '请求过于频繁，请稍后再试';
       case 500:
+        // 检查是否是特定的API超时错误
+        if (error.message && (error.message.includes('GEMINI_EDIT_408') || error.message.includes('408_AFTER_'))) {
+          return 'nano-banana模型服务暂时繁忙，已尝试多次重试仍失败，请稍后重试或尝试其他模型';
+        }
+        if (error.message && (error.message.includes('GEMINI_EDIT_TIMEOUT') || error.message.includes('TIMEOUT_AFTER_'))) {
+          return 'nano-banana模型处理超时，已尝试多次重试仍失败，建议降低图片复杂度或稍后重试';
+        }
+        if (error.message && error.message.includes('timeout')) {
+          return '图片处理超时，请稍后重试或尝试其他模型';
+        }
         return '服务器内部错误，请稍后重试';
       case 502:
         return '服务暂时不可用，正在重试...';
@@ -236,8 +297,18 @@ function createFriendlyErrorMessage(error: any): string {
     }
   }
   
-  if (error.message.includes('fetch')) {
-    return '网络连接失败，请检查网络连接';
+  // 检查特定的错误类型
+  if (error.message) {
+    if (error.message.includes('GEMINI_EDIT_408') || error.message.includes('408_AFTER_') || 
+        error.message.includes('GEMINI_EDIT_TIMEOUT') || error.message.includes('TIMEOUT_AFTER_')) {
+      return 'nano-banana模型服务暂时繁忙，已尝试多次重试仍失败，请稍后重试或尝试其他模型';
+    }
+    if (error.message.includes('fetch')) {
+      return '网络连接失败，请检查网络连接';
+    }
+    if (error.message.includes('timeout') || error.message.includes('超时')) {
+      return '请求超时，请稍后重试';
+    }
   }
   
   return error.message || '未知错误';
@@ -322,6 +393,8 @@ export async function createTask(
             }
           });
         }
+        // 确保 mode 参数被正确设置
+        formData.append('mode', 'image-to-image');
 
         // 处理图片
         const imageUrl = request.params?.image;

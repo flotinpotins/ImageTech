@@ -26,7 +26,8 @@ import {
   delay, 
   exportErrors,
   validateForm,
-  openImage
+  openImage,
+  createFriendlyErrorMessage
 } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import type { 
@@ -352,7 +353,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       
       console.log(`Calling createTask for task ${task.id}`);
       const createResponse = await createTask(request, apiKey, {
-        maxRetries: 0,
+        maxRetries: 2,
         timeoutMs: 300000,
         onRetry: (attempt, error) => {
           console.log(`Task ${task.id} retry attempt ${attempt}:`, error.message);
@@ -405,22 +406,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     } catch (error) {
       console.error(`Task ${task.id} execution failed:`, error);
       
-      let errorMessage = '未知错误';
-       
-       if (error instanceof Error) {
-         errorMessage = error.message;
-         
-         // 检查是否是网络相关错误
-         if (error.message.includes('fetch') || 
-             error.message.includes('网络') || 
-             error.message.includes('ERR_ABORTED') ||
-             error.message.includes('ERR_NETWORK') ||
-             error.message.includes('Failed to fetch')) {
-           errorMessage = '网络连接失败，请检查网络连接';
-         } else if (error.message.includes('timeout') || error.message.includes('超时')) {
-           errorMessage = '请求超时，请稍后重试';
-         }
-       }
+      // 使用统一的错误处理函数
+      const errorMessage = createFriendlyErrorMessage(error);
       
       updateTask(task.id, { 
         status: 'failed', 

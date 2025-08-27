@@ -31,7 +31,30 @@ function getFileExtension(mimeType: string): string {
   return ext === 'jpeg' ? 'jpg' : ext;
 }
 
+// 并发控制变量
+let activeGPTRequests = 0;
+const MAX_CONCURRENT_GPT_REQUESTS = 3;
+
+// 等待可用槽位
+async function waitForGPTSlot(): Promise<void> {
+  while (activeGPTRequests >= MAX_CONCURRENT_GPT_REQUESTS) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  activeGPTRequests++;
+  console.log(`GPT request slot acquired (active: ${activeGPTRequests}/${MAX_CONCURRENT_GPT_REQUESTS})`);
+}
+
+// 释放槽位
+function releaseGPTSlot(): void {
+  activeGPTRequests = Math.max(0, activeGPTRequests - 1);
+  console.log(`GPT request slot released (active: ${activeGPTRequests}/${MAX_CONCURRENT_GPT_REQUESTS})`);
+}
+
 export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
+  // 等待可用的请求槽位
+  await waitForGPTSlot();
+  
+  try {
   // 添加详细的参数日志
   console.log('=== GPT Image Generation Request ===');
   console.log('Prompt:', p.prompt);
@@ -112,29 +135,40 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
     body = JSON.stringify(jsonBody);
   }
 
-  // 发送请求
-  const ctl = new AbortController();
-  const timeout = setTimeout(() => ctl.abort(), 300_000); // 300s 超时，处理大图片
+  // 发送请求 - 添加重试机制
+  const maxRetries = 2;
+  let lastError: any;
   
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body,
-      signal: ctl.signal,
-    });
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const ctl = new AbortController();
+    const timeout = setTimeout(() => ctl.abort(), 180_000); // 减少到180s超时
     
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => response.statusText);
-      console.error('=== GPT Image API Error ===');
-      console.error('Status:', response.status);
-      console.error('Status Text:', response.statusText);
-      console.error('Error Response:', errorText);
-      console.error('Request URL:', url);
-      console.error('API Key used:', key ? `${key.substring(0, 10)}...` : 'None');
-      console.error('============================');
-      throw new Error(`PROVIDER_${response.status}:${errorText}`);
-    }
+    // 添加请求开始时间用于调试
+    const requestStartTime = Date.now();
+    console.log(`GPT Attempt ${attempt}/${maxRetries} - Starting request at:`, new Date(requestStartTime).toISOString());
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: ctl.signal,
+      });
+      
+      const requestDuration = Date.now() - requestStartTime;
+      console.log(`GPT Attempt ${attempt} - Request completed in ${requestDuration}ms`);
+    
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        console.error('=== GPT Image API Error ===');
+        console.error('Status:', response.status);
+        console.error('Status Text:', response.statusText);
+        console.error('Error Response:', errorText);
+        console.error('Request URL:', url);
+        console.error('API Key used:', key ? `${key.substring(0, 10)}...` : 'None');
+        console.error('============================');
+        throw new Error(`PROVIDER_${response.status}:${errorText}`);
+      }
     
     const result: any = await response.json();
     
@@ -163,13 +197,57 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
       throw new Error('PROVIDER_NO_VALID_IMAGES');
     }
     
-    return { urls, seed: undefined };
-  } catch (err: any) {
-    if (err?.name === 'AbortError') {
-      throw new Error('PROVIDER_TIMEOUT');
+      return { urls, seed: undefined };
+      
+    } catch (err: any) {
+      const requestDuration = Date.now() - requestStartTime;
+      console.log(`GPT Attempt ${attempt} failed after ${requestDuration}ms:`, err.message);
+      
+      lastError = err;
+      
+      // 清理超时
+      clearTimeout(timeout);
+      
+      // 如果是超时错误且还有重试机会，继续重试
+      if (err?.name === 'AbortError' && attempt < maxRetries) {
+        console.log(`GPT timeout on attempt ${attempt}, retrying in 2 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        continue;
+      }
+      
+      // 如果是网络错误且还有重试机会，继续重试
+      if (err.message.includes('fetch') && attempt < maxRetries) {
+        console.log(`GPT network error on attempt ${attempt}, retrying in 3 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        continue;
+      }
+      
+      // 最后一次尝试失败，抛出错误
+      if (attempt === maxRetries) {
+        if (err?.name === 'AbortError') {
+          throw new Error('GPT_TIMEOUT_AFTER_RETRIES');
+        }
+        
+        // 添加更详细的错误信息
+        if (err.message.includes('fetch')) {
+          console.error('GPT Network error details:', {
+            message: err.message,
+            stack: err.stack,
+            duration: requestDuration,
+            attempts: maxRetries
+          });
+        }
+        
+        throw err;
+      }
     }
-    throw err;
+  }
+  
+  // 如果所有重试都失败了
+  throw lastError || new Error('GPT: All retry attempts failed');
+  
   } finally {
-    clearTimeout(timeout);
+    // 释放请求槽位
+    releaseGPTSlot();
   }
 }

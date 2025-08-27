@@ -29,23 +29,9 @@ async function dataToBlob(dataURL: string): Promise<Blob> {
     return response.blob();
   }
   
-  // 如果是dataURL，手动解析转换为Blob
-  const matches = dataURL.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.*)$/);
-  if (!matches) {
-    throw new Error('Invalid dataURL format');
-  }
-  
-  const mimeType = matches[1];
-  const base64Data = matches[2];
-  
-  try {
-    // 在Node.js环境中，使用Buffer来解码base64
-    const buffer = Buffer.from(base64Data, 'base64');
-    return new Blob([buffer], { type: mimeType });
-  } catch (error) {
-    console.error('Error converting dataURL to Blob:', error);
-    throw new Error(`CONVERT_TO_BLOB_FAILED: ${error.message}`);
-  }
+  // 如果是dataURL，转换为Blob
+  const response = await fetch(dataURL);
+  return response.blob();
 }
 
 export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: string) {
@@ -67,11 +53,13 @@ export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: s
   const url = `${base}/v1/images/generations`;
 
   // 构建 OpenAI Dall-e 格式的请求体
+  const validSizes = ['1024x1024', '1536x1024', '1024x1536', 'adaptive'];
+  const finalSize = p.size && validSizes.includes(p.size) ? p.size : '1024x1024';
   const payload = {
     model: "nano-banana", // 根据文档，实际模型名称是 nano-banana
     prompt: p.prompt,
     response_format: "url", // 或 "b64_json"
-    size: p.size || "1024x1024",
+    size: finalSize,
     n: p.n || 1,
     quality: p.quality || "standard"
   };
@@ -174,10 +162,10 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
   formData.append('prompt', p.prompt);
   formData.append('response_format', p.response_format || 'url');
   
-  // 添加尺寸参数
-  if (p.size && p.size !== 'adaptive' && p.size !== 'auto') {
-    formData.append('size', p.size);
-  }
+  // 添加尺寸参数 - 确保使用有效的尺寸值
+  const validSizes = ['1024x1024', '1536x1024', '1024x1536', 'adaptive'];
+  const finalSize = p.size && validSizes.includes(p.size) ? p.size : '1024x1024';
+  formData.append('size', finalSize);
   
   // 添加其他参数
   if (p.n) {
@@ -188,27 +176,9 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
   }
   
   try {
-    // 尝试直接发送 base64 数据而不是 Blob
-    console.log('Processing image data, original length:', p.image.length);
-    
-    let imageData: string;
-    if (p.image.startsWith('data:')) {
-      // 提取 base64 部分
-      const matches = p.image.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.*)$/);
-      if (matches) {
-        imageData = matches[2];
-        console.log('Extracted base64 data, length:', imageData.length);
-      } else {
-        throw new Error('Invalid data URL format');
-      }
-    } else {
-      imageData = p.image;
-    }
-    
-    // 尝试两种方式：1. 直接发送 base64 字符串，2. 转换为 Blob
-    console.log('Trying base64 string approach first');
-    formData.append('image', imageData);
-    console.log('Base64 image data appended to FormData');
+    // 添加图片文件
+    const imageBlob = await dataToBlob(p.image);
+    formData.append('image', imageBlob, 'image.png');
 
     const headers = {
       'Authorization': `Bearer ${key}`

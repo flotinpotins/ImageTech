@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 
 import { Upload, X } from 'lucide-react';
-import { fileToDataURL, validateImageFile } from '@/lib/utils';
+import { fileToDataURL, validateImageFile, simpleFileToDataURL } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 
 interface ImageUploadProps {
@@ -64,7 +64,24 @@ export function ImageUpload({ images, onChange, maxImages = 4, onDimensionsChang
 
     try {
       const dataUrls = await Promise.all(
-        filesToProcess.map((file) => fileToDataURL(file))
+        filesToProcess.map(async (file) => {
+          try {
+            // 检测是否在Trae浏览器环境中
+            const userAgent = navigator.userAgent;
+            const isTrae = userAgent.includes('Trae') || window.location.href.includes('trae');
+            
+            if (isTrae) {
+              console.log('Detected Trae browser, using simple file conversion');
+              return await simpleFileToDataURL(file);
+            } else {
+              return await fileToDataURL(file);
+            }
+          } catch (error) {
+            console.error('Primary conversion failed, trying fallback:', error);
+            // 如果压缩失败，回退到简单转换
+            return await simpleFileToDataURL(file);
+          }
+        })
       );
       const newImages = [...images, ...dataUrls];
       onChange(newImages);

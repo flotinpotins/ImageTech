@@ -7,7 +7,30 @@ export type T2IParams = {
   imageFormat?: string; // "png"|"jpg", 默认 "png"
 };
 
+// 并发控制变量
+let activeJimengRequests = 0;
+const MAX_CONCURRENT_JIMENG_REQUESTS = 3;
+
+// 等待可用槽位
+async function waitForJimengSlot(): Promise<void> {
+  while (activeJimengRequests >= MAX_CONCURRENT_JIMENG_REQUESTS) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  activeJimengRequests++;
+  console.log(`Jimeng request slot acquired (active: ${activeJimengRequests}/${MAX_CONCURRENT_JIMENG_REQUESTS})`);
+}
+
+// 释放槽位
+function releaseJimengSlot(): void {
+  activeJimengRequests = Math.max(0, activeJimengRequests - 1);
+  console.log(`Jimeng request slot released (active: ${activeJimengRequests}/${MAX_CONCURRENT_JIMENG_REQUESTS})`);
+}
+
 export async function generateJimengT2I(p: T2IParams, apiKey?: string) {
+  // 等待可用的请求槽位
+  await waitForJimengSlot();
+  
+  try {
   const base = process.env.PROVIDER_BASE_URL!;
   const key = apiKey || process.env.PROVIDER_API_KEY!;
   if (!base || !key) throw new Error("MISSING_PROVIDER_CONFIG");
@@ -22,23 +45,37 @@ export async function generateJimengT2I(p: T2IParams, apiKey?: string) {
     watermark: p.watermark ?? false,
   };
 
-  const ctl = new AbortController();
-  const to = setTimeout(() => ctl.abort(), 120_000);
-  try {
-    const url = `${base}/v1/images/generations`;
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: ctl.signal,
-    });
-    if (!r.ok) {
-      const msg = await r.text().catch(() => r.statusText);
-      throw new Error(`PROVIDER_${r.status}:${msg}`);
-    }
+  // 发送请求 - 添加重试机制
+  const maxRetries = 2;
+  let lastError: any;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const ctl = new AbortController();
+    const timeout = setTimeout(() => ctl.abort(), 180_000); // 增加到180s超时
+    
+    // 添加请求开始时间用于调试
+    const requestStartTime = Date.now();
+    console.log(`Jimeng Attempt ${attempt}/${maxRetries} - Starting request at:`, new Date(requestStartTime).toISOString());
+    
+    try {
+      const url = `${base}/v1/images/generations`;
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: ctl.signal,
+      });
+      
+      const requestDuration = Date.now() - requestStartTime;
+      console.log(`Jimeng Attempt ${attempt} - Request completed in ${requestDuration}ms`);
+      
+      if (!r.ok) {
+        const msg = await r.text().catch(() => r.statusText);
+        throw new Error(`PROVIDER_${r.status}:${msg}`);
+      }
     const j: any = await r.json();
     
     // 处理响应数据
@@ -59,13 +96,57 @@ export async function generateJimengT2I(p: T2IParams, apiKey?: string) {
       throw new Error('PROVIDER_NO_VALID_IMAGES');
     }
     
-    return { urls, seed: p.seed };
-  } catch (err: any) {
-    if (err?.name === "AbortError") {
-      throw new Error("PROVIDER_TIMEOUT");
+      return { urls, seed: p.seed };
+      
+    } catch (err: any) {
+      const requestDuration = Date.now() - requestStartTime;
+      console.log(`Jimeng Attempt ${attempt} failed after ${requestDuration}ms:`, err.message);
+      
+      lastError = err;
+      
+      // 清理超时
+      clearTimeout(timeout);
+      
+      // 如果是超时错误且还有重试机会，继续重试
+      if (err?.name === 'AbortError' && attempt < maxRetries) {
+        console.log(`Jimeng timeout on attempt ${attempt}, retrying in 2 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        continue;
+      }
+      
+      // 如果是网络错误且还有重试机会，继续重试
+      if (err.message.includes('fetch') && attempt < maxRetries) {
+        console.log(`Jimeng network error on attempt ${attempt}, retrying in 3 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        continue;
+      }
+      
+      // 最后一次尝试失败，抛出错误
+      if (attempt === maxRetries) {
+        if (err?.name === 'AbortError') {
+          throw new Error('JIMENG_TIMEOUT_AFTER_RETRIES');
+        }
+        
+        // 添加更详细的错误信息
+        if (err.message.includes('fetch')) {
+          console.error('Jimeng Network error details:', {
+            message: err.message,
+            stack: err.stack,
+            duration: requestDuration,
+            attempts: maxRetries
+          });
+        }
+        
+        throw err;
+      }
     }
-    throw err;
+  }
+  
+  // 如果所有重试都失败了
+  throw lastError || new Error('Jimeng: All retry attempts failed');
+  
   } finally {
-    clearTimeout(to);
+    // 释放请求槽位
+    releaseJimengSlot();
   }
 }

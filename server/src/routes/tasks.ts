@@ -67,53 +67,38 @@ export default async function routes(app: FastifyInstance) {
       console.log('Multipart request detected.');
       
       try {
-        // 当启用 attachFieldsToBody: true 时，文件和字段都会附加到 req.body
-        const body = req.body as { [key: string]: any };
-        console.log('Received body keys:', Object.keys(body));
-        console.log('Body content:', body);
+        const parts = req.parts();
+        const fields: { [key: string]: any } = {};
+        let imageBuffer: Buffer | null = null;
+        let partCount = 0;
+
+        for await (const part of parts) {
+          partCount++;
+          console.log(`Processing part ${partCount}: type=${part.type}, fieldname=${part.fieldname}`);
+          
+          if (part.type === 'file') {
+            console.log(`File part details: fieldname=${part.fieldname}, filename=${part.filename}, mimetype=${part.mimetype}`);
+            if (part.fieldname === 'image') {
+              imageBuffer = await part.toBuffer();
+              console.log(`Received image buffer, size: ${imageBuffer.length}`);
+            }
+          } else if (part.type === 'field') {
+            console.log(`Field part: ${part.fieldname} = ${part.value}`);
+            fields[part.fieldname] = part.value;
+          }
+        }
+
+        console.log(`Total parts processed: ${partCount}`);
+        console.log(`ImageBuffer exists: ${!!imageBuffer}`);
         
-        // 检查是否有 image 字段
-        if (!body.image) {
-          console.log('ERROR: No image field found in multipart request');
+        if (!imageBuffer) {
+          console.log('ERROR: No image buffer found in multipart request');
           return res.status(400).send({ message: "Image file is required for multipart request." });
         }
-        
-        // 获取图片数据 (可能是 Buffer 或文件对象)
-        const imageData = body.image;
-        let imageBuffer: Buffer;
-        
-        if (Buffer.isBuffer(imageData)) {
-          imageBuffer = imageData;
-        } else if (imageData && typeof imageData === 'object' && 'toBuffer' in imageData) {
-          // 如果是文件对象，调用 toBuffer()
-          imageBuffer = await imageData.toBuffer();
-        } else {
-          console.log('ERROR: Invalid image data type:', typeof imageData);
-          return res.status(400).send({ message: "Invalid image data format." });
-        }
-        
-        console.log(`Received image buffer, size: ${imageBuffer.length}`);
 
-        // 获取其他字段
-        const fields = { ...body };
-        delete fields.image; // 移除 image 字段，避免重复
         console.log('Received fields:', fields);
-        console.log('Fields keys:', Object.keys(fields));
 
-        // 提取字段值 (attachFieldsToBody: true 会将字段包装成对象)
-        const model = fields.model?.value || fields.model;
-        const prompt = fields.prompt?.value || fields.prompt;
-        
-        // 提取其他参数的值
-        const params: any = {};
-        Object.entries(fields).forEach(([key, field]) => {
-          if (key !== 'model' && key !== 'prompt') {
-            params[key] = (field as any)?.value || field;
-          }
-        });
-        
-        console.log('Extracted model:', model, 'prompt:', prompt);
-        console.log('Extracted params:', params);
+        const { model, prompt, ...params } = fields;
 
         if (model !== 'nano-banana') {
             console.log('ERROR: Invalid model for multipart:', model);
@@ -125,12 +110,37 @@ export default async function routes(app: FastifyInstance) {
             return res.status(400).send({ message: "Prompt is required." });
         }
 
-        const requestPayload = { prompt, ...params, image: imageBuffer };
-        console.log('Calling dispatchGenerate with payload keys:', Object.keys(requestPayload));
+        // 确保 mode 参数正确设置
+        if (!params.mode) {
+          params.mode = 'image-to-image';
+        }
+        
+        // 将 Buffer 转换为 base64 字符串，因为 editGeminiImage 期望 DataURL
+        console.log('Converting imageBuffer to base64, buffer size:', imageBuffer.length);
+        const imageBase64 = imageBuffer.toString('base64');
+        const imageDataUrl = `data:image/png;base64,${imageBase64}`;
+        console.log('Generated imageDataUrl length:', imageDataUrl.length);
+        console.log('ImageDataUrl preview:', imageDataUrl.substring(0, 100) + '...');
+        
+        const requestPayload = { 
+          prompt, 
+          ...params, 
+          image: imageDataUrl,
+          mode: 'image-to-image',
+          n: params.n || 1,
+          size: params.size || '1024x1024'
+        };
+        console.log('Calling dispatchGenerate with payload:', {
+          prompt: requestPayload.prompt,
+          mode: requestPayload.mode,
+          n: requestPayload.n,
+          size: requestPayload.size,
+          imageLength: requestPayload.image.length
+        });
         
         const result = await dispatchGenerate(model, requestPayload, apiKey);
         
-        const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const id = `tsk_${Date.now()}`;
         const { urls, seed } = result;
         const responsePayload = {
           id,
@@ -168,7 +178,7 @@ export default async function routes(app: FastifyInstance) {
       try {
         // 对于Tool Calling格式，直接传递完整的请求体给适配器
         const result = await dispatchGenerate(model, req.body, apiKey);
-        const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const id = `tsk_${Date.now()}`;
         
         // 处理同步任务
         const { urls, seed } = result;
@@ -206,7 +216,7 @@ export default async function routes(app: FastifyInstance) {
       }
       
       const result = await dispatchGenerate(model, requestPayload, apiKey);
-      const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const id = `tsk_${Date.now()}`;
       
       // 处理同步任务
       const { urls, seed } = result;
