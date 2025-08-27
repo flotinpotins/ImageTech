@@ -29,9 +29,23 @@ async function dataToBlob(dataURL: string): Promise<Blob> {
     return response.blob();
   }
   
-  // 如果是dataURL，转换为Blob
-  const response = await fetch(dataURL);
-  return response.blob();
+  // 如果是dataURL，手动解析转换为Blob
+  const matches = dataURL.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.*)$/);
+  if (!matches) {
+    throw new Error('Invalid dataURL format');
+  }
+  
+  const mimeType = matches[1];
+  const base64Data = matches[2];
+  
+  try {
+    // 在Node.js环境中，使用Buffer来解码base64
+    const buffer = Buffer.from(base64Data, 'base64');
+    return new Blob([buffer], { type: mimeType });
+  } catch (error) {
+    console.error('Error converting dataURL to Blob:', error);
+    throw new Error(`CONVERT_TO_BLOB_FAILED: ${error.message}`);
+  }
 }
 
 export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: string) {
