@@ -16,7 +16,10 @@ function createDbClient() {
 async function saveTask(taskData: any) {
   const client = createDbClient();
   try {
+    console.log('Saving task to database:', taskData.id, 'status:', taskData.status);
     await client.connect();
+    console.log('Database connected for saveTask');
+    
     await client.query(
       `INSERT INTO tasks (id, model, prompt, params, status, seed, error, created_at, updated_at) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
@@ -25,9 +28,11 @@ async function saveTask(taskData: any) {
       [taskData.id, taskData.meta?.model, taskData.prompt, JSON.stringify(taskData.meta?.params || {}), 
        taskData.status, taskData.seed, taskData.error]
     );
+    console.log('Task saved successfully:', taskData.id);
     
     // 保存图片URLs
     if (taskData.outputUrls && taskData.outputUrls.length > 0) {
+      console.log('Saving', taskData.outputUrls.length, 'images for task:', taskData.id);
       for (const url of taskData.outputUrls) {
         await client.query(
           `INSERT INTO images (task_id, url, provider, created_at) 
@@ -35,7 +40,11 @@ async function saveTask(taskData: any) {
           [taskData.id, url, taskData.meta?.model || 'unknown']
         );
       }
+      console.log('Images saved successfully for task:', taskData.id);
     }
+  } catch (error) {
+    console.error('Database error in saveTask:', error);
+    throw error;
   } finally {
     await client.end();
   }
@@ -44,25 +53,32 @@ async function saveTask(taskData: any) {
 async function getTask(taskId: string) {
   const client = createDbClient();
   try {
+    console.log('Connecting to database for task:', taskId);
     await client.connect();
+    console.log('Database connected successfully');
+    
     const taskResult = await client.query(
       'SELECT * FROM tasks WHERE id = $1',
       [taskId]
     );
+    console.log('Task query result:', taskResult.rows.length, 'rows');
     
     if (taskResult.rows.length === 0) {
+      console.log('Task not found:', taskId);
       return null;
     }
     
     const task = taskResult.rows[0];
+    console.log('Found task:', task.id, 'status:', task.status);
     
     // 获取关联的图片
     const imagesResult = await client.query(
       'SELECT url FROM images WHERE task_id = $1 ORDER BY created_at',
       [taskId]
     );
+    console.log('Images query result:', imagesResult.rows.length, 'images');
     
-    return {
+    const result = {
       id: task.id,
       status: task.status,
       outputUrls: imagesResult.rows.map(row => row.url),
@@ -71,6 +87,11 @@ async function getTask(taskId: string) {
       meta: task.params ? JSON.parse(task.params) : {},
       prompt: task.prompt
     };
+    console.log('Returning task result:', result);
+    return result;
+  } catch (error) {
+    console.error('Database error in getTask:', error);
+    throw error;
   } finally {
     await client.end();
   }
@@ -492,18 +513,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
       // 处理 /api/tasks?taskId=xxx 格式的请求
       const taskId = Array.isArray(query.taskId) ? query.taskId[0] : query.taskId;
+      console.log('GET request for taskId:', taskId);
       
       if (!taskId) {
+        console.log('Missing taskId parameter');
         return res.status(400).json({ error: "Missing taskId parameter" });
       }
       
-      const task = await getTask(taskId);
-      
-      if (!task) {
-        return res.status(404).json({ error: "Task not found" });
+      try {
+        console.log('Attempting to get task:', taskId);
+        const task = await getTask(taskId);
+        
+        if (!task) {
+          console.log('Task not found in database:', taskId);
+          return res.status(404).json({ error: "Task not found" });
+        }
+        
+        console.log('Successfully retrieved task:', taskId);
+        return res.status(200).json(task);
+      } catch (dbError: any) {
+        console.error('Database error while getting task:', taskId, dbError);
+        return res.status(500).json({ error: "Database error: " + dbError.message });
       }
-      
-      return res.status(200).json(task);
     }
     
     return res.status(405).json({ error: "Method not allowed" });
