@@ -15,6 +15,9 @@ export type GeminiImageParams = {
 export type GeminiImageEditParams = {
   prompt: string;
   image: string;      // dataURL 格式的图片或图片URL
+  size?: string;      // "1024x1024"|"1536x1024"|"1024x1536"|"auto"
+  n?: number;         // 1-10, 默认 1
+  quality?: string;   // "high"|"medium"|"low"
   response_format?: string; // "url" 或 "b64_json"
 };
 
@@ -156,6 +159,19 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
   formData.append('model', 'nano-banana');
   formData.append('prompt', p.prompt);
   formData.append('response_format', p.response_format || 'url');
+  
+  // 添加尺寸参数
+  if (p.size && p.size !== 'adaptive' && p.size !== 'auto') {
+    formData.append('size', p.size);
+  }
+  
+  // 添加其他参数
+  if (p.n) {
+    formData.append('n', p.n.toString());
+  }
+  if (p.quality) {
+    formData.append('quality', p.quality);
+  }
   
   try {
     // 添加图片文件

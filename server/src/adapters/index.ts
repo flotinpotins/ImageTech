@@ -59,6 +59,9 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
       return editGeminiImage({
         prompt: payload.prompt,
         image: image,
+        size: payload?.size ?? payload?.params?.size,
+        n: payload?.n ?? payload?.params?.n,
+        quality: payload?.quality ?? payload?.params?.quality,
         response_format: payload?.response_format ?? payload?.params?.response_format ?? 'url',
       }, apiKey).then(urls => ({ urls, seed: undefined }));
     } else {
