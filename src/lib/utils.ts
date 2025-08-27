@@ -313,7 +313,7 @@ export async function createTask(
         formData.append('model', request.model);
         formData.append('prompt', request.prompt);
         
-        // 将 params 对象中的每个键值对添加到 formData
+        // 将 params 对象中的每个键值对添加到 formData（除了image）
         if (request.params) {
           Object.entries(request.params).forEach(([key, value]) => {
             // 图片将单独处理，避免重复添加
@@ -328,6 +328,7 @@ export async function createTask(
         if (imageUrl) {
           const imageBlob = dataURLtoBlob(imageUrl);
           formData.append('image', imageBlob, 'upload.png'); // 'image' 是后端期望的字段名
+          console.log('Added image to FormData, blob size:', imageBlob.size);
         } else {
           throw new Error('Image is required for image-to-image generation.');
         }
