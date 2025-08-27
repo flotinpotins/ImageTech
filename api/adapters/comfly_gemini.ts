@@ -1,5 +1,8 @@
-// 使用新的OpenAI聊天完成格式调用Gemini 2.5 Flash Image
-// 支持文生图和图像修改功能
+/**
+ * Gemini 2.5 Flash Image Preview 适配器
+ * 使用 OpenAI Dall-e 格式调用 Gemini 2.5 Flash Image Preview 模型
+ * 根据官方文档，使用 /v1/images/generations 接口
+ */
 
 export type GeminiImageParams = {
   prompt: string;
@@ -9,26 +12,27 @@ export type GeminiImageParams = {
   quality?: string;   // "high"|"medium"|"low"
 };
 
-// 将 dataURL 转为 base64 字符串
-function dataURLToBase64(dataURL: string): string {
-  const matches = dataURL.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.*)$/);
-  if (!matches) {
-    throw new Error('Invalid dataURL format');
+export type GeminiImageEditParams = {
+  prompt: string;
+  image: string;      // dataURL 格式的图片或图片URL
+  response_format?: string; // "url" 或 "b64_json"
+};
+
+// 将 dataURL 转换为 Blob
+async function dataToBlob(dataURL: string): Promise<Blob> {
+  if (dataURL.startsWith('http')) {
+    // 如果是URL，先下载
+    const response = await fetch(dataURL);
+    return response.blob();
   }
-  return matches[2];
+  
+  // 如果是dataURL，转换为Blob
+  const response = await fetch(dataURL);
+  return response.blob();
 }
 
-// 获取图片的 MIME 类型
-function getMimeType(dataURL: string): string {
-  const matches = dataURL.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,/);
-  if (!matches) {
-    return 'image/png'; // 默认类型
-  }
-  return matches[1];
-}
-
-export async function generateGeminiImage(p: GeminiImageParams, apiKey?: string) {
-  console.log('=== Gemini Image Generation Request ===');
+export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: string) {
+  console.log('=== Gemini Image Generation Request (Dall-e Format) ===');
   console.log('Prompt:', p.prompt);
   console.log('Images count:', p.images?.length || 0);
   console.log('Size:', p.size);
@@ -37,65 +41,31 @@ export async function generateGeminiImage(p: GeminiImageParams, apiKey?: string)
   console.log('API Key provided:', !!apiKey);
   console.log('======================================');
 
-  const base = process.env.PROVIDER_BASE_URL!;
+  // 使用新的base URL
+  const base = 'https://ai.comfly.chat';
   const key = apiKey || process.env.PROVIDER_API_KEY!;
-  if (!base || !key) throw new Error("MISSING_PROVIDER_CONFIG");
+  if (!key) throw new Error("MISSING_API_KEY");
 
-  const url = `${base}/v1/chat/completions`;
+  // 使用 OpenAI Dall-e 格式的接口
+  const url = `${base}/v1/images/generations`;
 
-  // 构建消息内容
-  const content: any[] = [];
-
-  // 构建优化的文本提示
-  let optimizedPrompt = p.prompt;
-  
-  // 如果是图像编辑（有输入图片）
-  if (p.images && p.images.length > 0) {
-    optimizedPrompt = `请根据提供的图片进行修改，要求：${p.prompt}。请直接返回修改后的图片URL或base64数据，不要包含其他文字说明。`;
-  } else {
-    // 文本生成图片
-    optimizedPrompt = `请根据以下描述生成图片：${p.prompt}。请直接返回生成的图片URL或base64数据，不要包含其他文字说明。`;
-  }
-  
-  // 添加文本提示
-  content.push({
-    type: "text",
-    text: optimizedPrompt
-  });
-
-  // 如果有图片，添加到消息内容中
-  if (p.images && p.images.length > 0) {
-    for (const imageDataURL of p.images) {
-      const base64Data = dataURLToBase64(imageDataURL);
-      const mimeType = getMimeType(imageDataURL);
-      
-      content.push({
-        type: "image_url",
-        image_url: {
-          url: `data:${mimeType};base64,${base64Data}`
-        }
-      });
-    }
-  }
-
+  // 构建 OpenAI Dall-e 格式的请求体
   const payload = {
-    model: "gemini-2.5-flash-image-preview", // 使用指定的Gemini 2.5 Flash Image模型
-    messages: [
-      {
-        role: "user",
-        content: content
-      }
-    ],
-    stream: true, // 根据文档要求，必须使用流式返回
-    max_tokens: 4000, // 增加token限制以适应图片生成
-    temperature: 0.7,
-    top_p: 0.9
+    model: "nano-banana", // 根据文档，实际模型名称是 nano-banana
+    prompt: p.prompt,
+    response_format: "url", // 或 "b64_json"
+    size: p.size || "1024x1024",
+    n: p.n || 1,
+    quality: p.quality || "standard"
   };
 
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${key}`
   };
+
+  console.log('Final payload for Gemini API:', JSON.stringify(payload, null, 2));
+  console.log('Request URL:', url);
 
   // 发送请求
   const ctl = new AbortController();
@@ -120,73 +90,36 @@ export async function generateGeminiImage(p: GeminiImageParams, apiKey?: string)
       throw new Error(`GEMINI_${response.status}:${errorText}`);
     }
 
-    // 处理流式响应
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('GEMINI_NO_RESPONSE_BODY');
+    // 解析响应
+    const result = await response.json();
+    console.log('Gemini API Response:', JSON.stringify(result, null, 2));
+
+    // 检查响应格式
+    if (!result.data || !Array.isArray(result.data)) {
+      console.error('Unexpected response format:', result);
+      throw new Error('GEMINI_INVALID_RESPONSE_FORMAT');
     }
 
-    let fullResponse = '';
-    const decoder = new TextDecoder();
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        console.log('Received chunk:', chunk); // 调试日志
-        
-        const lines = chunk.split('\n').filter(line => line.trim());
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            
-            if (data === '[DONE]') {
-              console.log('Stream completed');
-              break;
-            }
-
-            try {
-              const parsed = JSON.parse(data);
-              console.log('Parsed chunk:', parsed);
-              
-              // 检查是否有错误
-              if (parsed.error) {
-                throw new Error(`GEMINI_ERROR: ${parsed.error.message || JSON.stringify(parsed.error)}`);
-              }
-              
-              const content = parsed.choices?.[0]?.delta?.content || '';
-              if (content) {
-                fullResponse += content;
-                console.log('Accumulated response:', fullResponse);
-              }
-            } catch (e) {
-              console.warn('Failed to parse chunk:', line, e);
-            }
-          }
-        }
+    // 提取图像URLs
+    const imageUrls: string[] = [];
+    for (const item of result.data) {
+      if (item.url) {
+        imageUrls.push(item.url);
+      } else if (item.b64_json) {
+        // 如果返回的是base64格式，转换为dataURL
+        const dataUrl = `data:image/png;base64,${item.b64_json}`;
+        imageUrls.push(dataUrl);
       }
-    } finally {
-      reader.releaseLock();
     }
 
-    console.log('Full response received:', fullResponse);
-    
-    // 从响应中提取图片信息
-    const imageUrls = extractImageUrls(fullResponse);
-    
+    console.log('Generated image URLs:', imageUrls);
+
     if (imageUrls.length === 0) {
-      console.warn('No images found in response:', fullResponse);
-      // 如果响应看起来是有效的但没有找到图片，返回整个响应作为后备
-      if (fullResponse.trim()) {
-        return { urls: [fullResponse.trim()], seed: undefined };
-      }
-      throw new Error('GEMINI_NO_VALID_IMAGES');
+      throw new Error('GEMINI_NO_IMAGES_IN_RESPONSE');
     }
 
-    return { urls: imageUrls, seed: undefined };
+    return imageUrls;
+
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw new Error('GEMINI_TIMEOUT');
@@ -197,46 +130,110 @@ export async function generateGeminiImage(p: GeminiImageParams, apiKey?: string)
   }
 }
 
-// 从响应文本中提取图片URL或base64数据
-function extractImageUrls(responseText: string): string[] {
-  const urls: string[] = [];
+/**
+ * Gemini 图生图功能
+ * 使用 /v1/images/edits 接口
+ */
+export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string) {
+  console.log('=== Gemini Image Edit Request ===');
+  console.log('Prompt:', p.prompt);
+  console.log('Image provided:', !!p.image);
+  console.log('Image length:', p.image ? p.image.length : 0);
+  console.log('Response format:', p.response_format || 'url');
+  console.log('API Key provided:', !!apiKey);
+  console.log('======================================');
+
+  // 使用新的base URL
+  const base = 'https://ai.comfly.chat';
+  const key = apiKey || process.env.PROVIDER_API_KEY!;
+  if (!key) throw new Error("MISSING_API_KEY");
+
+  // 使用图生图接口
+  const url = `${base}/v1/images/edits`;
+
+  // 构建 FormData
+  const formData = new FormData();
+  formData.append('model', 'nano-banana');
+  formData.append('prompt', p.prompt);
+  formData.append('response_format', p.response_format || 'url');
   
-  // 1. 查找 markdown 格式的图片链接 ![alt](url)
-  const markdownRegex = /!\[.*?\]\((.*?)\)/g;
-  let match;
-  while ((match = markdownRegex.exec(responseText)) !== null) {
-    urls.push(match[1]);
-  }
+  try {
+    // 添加图片文件
+    const imageBlob = await dataToBlob(p.image);
+    formData.append('image', imageBlob, 'image.png');
 
-  // 2. 查找 HTML img 标签 <img src="url">
-  const htmlRegex = /<img[^>]+src=["']([^"']+)["']/gi;
-  while ((match = htmlRegex.exec(responseText)) !== null) {
-    if (!urls.includes(match[1])) {
-      urls.push(match[1]);
+    const headers = {
+      'Authorization': `Bearer ${key}`
+      // 注意：不要设置 Content-Type，让运行时自动设置 multipart/form-data 边界
+    };
+
+    console.log('Request URL:', url);
+    console.log('FormData keys:', Array.from((formData as any).keys?.() || []));
+
+    // 发送请求
+    const ctl = new AbortController();
+    const timeout = setTimeout(() => ctl.abort(), 300_000); // 300s 超时
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: ctl.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        console.error('=== Gemini Image Edit API Error ===');
+        console.error('Status:', response.status);
+        console.error('Status Text:', response.statusText);
+        console.error('Error Response:', errorText);
+        console.error('Request URL:', url);
+        console.error('============================');
+        throw new Error(`GEMINI_EDIT_${response.status}:${errorText}`);
+      }
+
+      // 解析响应
+      const result = await response.json();
+      console.log('Gemini Image Edit API Response:', JSON.stringify(result, null, 2));
+
+      // 检查响应格式
+      if (!result.data || !Array.isArray(result.data)) {
+        console.error('Unexpected response format:', result);
+        throw new Error('GEMINI_EDIT_INVALID_RESPONSE_FORMAT');
+      }
+
+      // 提取图像URLs
+      const imageUrls: string[] = [];
+      for (const item of result.data) {
+        if (item.url) {
+          imageUrls.push(item.url);
+        } else if (item.b64_json) {
+          // 如果返回的是base64格式，转换为dataURL
+          const dataUrl = `data:image/png;base64,${item.b64_json}`;
+          imageUrls.push(dataUrl);
+        }
+      }
+
+      console.log('Generated image URLs:', imageUrls);
+
+      if (imageUrls.length === 0) {
+        throw new Error('GEMINI_EDIT_NO_IMAGES_IN_RESPONSE');
+      }
+
+      return imageUrls;
+
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw new Error('GEMINI_EDIT_TIMEOUT');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
     }
-  }
 
-  // 3. 查找直接的图片URL
-  const urlRegex = /https?:\/\/[^\s"'>]+(?:\.(?:png|jpg|jpeg|gif|webp|svg)|\?[^\s"'>]*)/gi;
-  while ((match = urlRegex.exec(responseText)) !== null) {
-    if (!urls.includes(match[0])) {
-      urls.push(match[0]);
-    }
+  } catch (error) {
+    console.error('Error in editGeminiImage:', error);
+    throw error;
   }
-
-  // 4. 查找 base64 图片数据
-  const base64Regex = /data:image\/[a-zA-Z]+;base64,[a-zA-Z0-9+/]+={0,2}/g;
-  while ((match = base64Regex.exec(responseText)) !== null) {
-    urls.push(match[0]);
-  }
-
-  // 5. 查找可能包含在引号中的URL
-  const quotedUrlRegex = /["'](https?:\/\/[^\s"']+\.(?:png|jpg|jpeg|gif|webp|svg))["']/gi;
-  while ((match = quotedUrlRegex.exec(responseText)) !== null) {
-    if (!urls.includes(match[1])) {
-      urls.push(match[1]);
-    }
-  }
-
-  return urls.filter(url => url && url.length > 10);
 }
