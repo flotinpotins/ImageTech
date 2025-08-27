@@ -375,7 +375,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: "Missing required fields: model, prompt" });
       }
       
-      const taskId = `tsk_${Date.now()}`;
+      const taskId = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       try {
         console.log('开始处理图片生成请求:', { model: body.model, prompt: body.prompt });
