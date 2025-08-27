@@ -24,7 +24,8 @@ const waitForSlot = async (): Promise<void> => {
     }
     
     console.log(`Waiting for request slot... (active: ${activeRequests}/${MAX_CONCURRENT_REQUESTS}, waited: ${Date.now() - startTime}ms)`);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // 减少等待间隔，提高响应性
+    await new Promise(resolve => setTimeout(resolve, 200));
   }
   
   activeRequests++;
@@ -358,6 +359,19 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
       throw new Error('Failed to create valid Blob from buffer');
     }
     
+    // 验证图像数据的前几个字节（PNG/JPEG魔数）
+    const firstBytes = Array.from(imageBuffer.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+    console.log('Image buffer first 8 bytes (hex):', firstBytes);
+    
+    // PNG文件应该以 89 50 4E 47 开头，JPEG文件应该以 FF D8 开头
+    const isPNG = imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50 && imageBuffer[2] === 0x4E && imageBuffer[3] === 0x47;
+    const isJPEG = imageBuffer[0] === 0xFF && imageBuffer[1] === 0xD8;
+    console.log('Image format validation:', { isPNG, isJPEG, detectedFormat: isPNG ? 'PNG' : isJPEG ? 'JPEG' : 'Unknown' });
+    
+    if (!isPNG && !isJPEG) {
+      console.warn('⚠️ Warning: Image data does not appear to be valid PNG or JPEG format');
+    }
+    
     formData.append('image', imageBlob, 'upload.png');
     
     const formDataCreateDuration = Date.now() - imageProcessStartTime;
@@ -373,6 +387,21 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
 
     console.log('Request URL:', url);
     console.log('Request headers:', headers);
+    
+    // 调试FormData内容
+    console.log('📋 FormData debug info:');
+    console.log('- model:', formData.get('model'));
+    console.log('- prompt:', formData.get('prompt'));
+    console.log('- response_format:', formData.get('response_format'));
+    console.log('- size:', formData.get('size'));
+    console.log('- n:', formData.get('n'));
+    console.log('- quality:', formData.get('quality'));
+    const imageFile = formData.get('image');
+    console.log('- image file:', {
+      type: imageFile instanceof Blob ? imageFile.type : typeof imageFile,
+      size: imageFile instanceof Blob ? imageFile.size : 'N/A',
+      constructor: imageFile?.constructor?.name
+    });
 
     // 发送请求 - 增强重试机制
     const maxRetries = 3; // 增加重试次数

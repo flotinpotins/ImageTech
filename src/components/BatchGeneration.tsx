@@ -454,7 +454,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     const pendingTasks = resetTasks.filter(task => task.status === 'queued');
     let completedCount = 0;
     
-    // 并发执行任务
+    // 并发执行任务 - 优化版本，减少最后任务的等待时间
     const executeWithConcurrency = async () => {
         const executing = new Set<Promise<void>>();
         
@@ -471,14 +471,15 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
             break;
           }
           
-          // 等待并发数限制
+          // 等待并发数限制 - 优化：减少等待时间
           while (executing.size >= concurrency) {
             await Promise.race(executing);
           }
           
-          // 节流
-          if (config.throttleMs > 0) {
-            await delay(config.throttleMs);
+          // 节流 - 对于小批量任务减少节流时间
+          const throttleTime = pendingTasks.length <= 5 ? Math.max(100, config.throttleMs / 2) : config.throttleMs;
+          if (throttleTime > 0) {
+            await delay(throttleTime);
           }
           
           // 执行任务（使用createTask内部的重试机制）
