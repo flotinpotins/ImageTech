@@ -2,11 +2,79 @@ import { VercelRequest, VercelResponse } from '@vercel/node';
 import { generateGeminiImage, editGeminiImage } from './adapters/comfly_gemini.js';
 import formidable from 'formidable';
 import { readFileSync } from 'fs';
+import { Client } from 'pg';
 
-const tasks = new Map<string, any>();
+// 数据库连接
+function createDbClient() {
+  return new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+}
 
-// 导出tasks Map以便其他文件使用
-export { tasks };
+// 数据库操作函数
+async function saveTask(taskData: any) {
+  const client = createDbClient();
+  try {
+    await client.connect();
+    await client.query(
+      `INSERT INTO tasks (id, model, prompt, params, status, seed, error, created_at, updated_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+       ON CONFLICT (id) DO UPDATE SET 
+       status = $5, seed = $6, error = $7, updated_at = NOW()`,
+      [taskData.id, taskData.meta?.model, taskData.prompt, JSON.stringify(taskData.meta?.params || {}), 
+       taskData.status, taskData.seed, taskData.error]
+    );
+    
+    // 保存图片URLs
+    if (taskData.outputUrls && taskData.outputUrls.length > 0) {
+      for (const url of taskData.outputUrls) {
+        await client.query(
+          `INSERT INTO images (task_id, url, provider, created_at) 
+           VALUES ($1, $2, $3, NOW()) ON CONFLICT DO NOTHING`,
+          [taskData.id, url, taskData.meta?.model || 'unknown']
+        );
+      }
+    }
+  } finally {
+    await client.end();
+  }
+}
+
+async function getTask(taskId: string) {
+  const client = createDbClient();
+  try {
+    await client.connect();
+    const taskResult = await client.query(
+      'SELECT * FROM tasks WHERE id = $1',
+      [taskId]
+    );
+    
+    if (taskResult.rows.length === 0) {
+      return null;
+    }
+    
+    const task = taskResult.rows[0];
+    
+    // 获取关联的图片
+    const imagesResult = await client.query(
+      'SELECT url FROM images WHERE task_id = $1 ORDER BY created_at',
+      [taskId]
+    );
+    
+    return {
+      id: task.id,
+      status: task.status,
+      outputUrls: imagesResult.rows.map(row => row.url),
+      seed: task.seed,
+      error: task.error,
+      meta: task.params ? JSON.parse(task.params) : {},
+      prompt: task.prompt
+    };
+  } finally {
+    await client.end();
+  }
+}
 
 // T2I Types and Functions
 export type T2IParams = {
@@ -398,7 +466,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           prompt: body.prompt,
         };
         
-        tasks.set(taskId, payload);
+        await saveTask(payload);
         
         return res.status(200).json({ id: taskId });
         
@@ -413,7 +481,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           prompt: body.prompt,
         };
         
-        tasks.set(taskId, errorPayload);
+        await saveTask(errorPayload);
         
         return res.status(200).json({ id: taskId });
       }
@@ -429,7 +497,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: "Missing taskId parameter" });
       }
       
-      const task = tasks.get(taskId);
+      const task = await getTask(taskId);
       
       if (!task) {
         return res.status(404).json({ error: "Task not found" });
