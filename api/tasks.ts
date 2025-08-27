@@ -248,16 +248,16 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
     const { generateGeminiImage, editGeminiImage } = await import('./adapters/comfly_gemini');
     const mode = payload?.mode ?? payload?.params?.mode ?? 'text-to-image';
     
-    console.log('nano-banana模型处理:', { mode, hasImages: !!(payload?.images ?? payload?.params?.images) });
+    console.log('nano-banana模型处理:', { mode, hasImage: !!(payload?.image ?? payload?.params?.image) });
     
     if (mode === 'image-to-image') {
-      const images = payload?.images ?? payload?.params?.images;
-      if (!images || images.length === 0) {
+      const image = payload?.image ?? payload?.params?.image;
+      if (!image) {
         throw new Error('NANO_BANANA_MISSING_IMAGE');
       }
       return editGeminiImage({
         prompt: payload.prompt,
-        image: images[0],
+        image: image,
         size: payload?.size ?? payload?.params?.size,
         n: payload?.n ?? payload?.params?.n,
         quality: payload?.quality ?? payload?.params?.quality,
