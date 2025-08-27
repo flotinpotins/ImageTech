@@ -188,12 +188,27 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
   }
   
   try {
-    // 添加图片文件
-    console.log('Converting image to blob, original length:', p.image.length);
-    const imageBlob = await dataToBlob(p.image);
-    console.log('Blob created successfully, size:', imageBlob.size, 'type:', imageBlob.type);
-    formData.append('image', imageBlob, 'image.png');
-    console.log('Image blob appended to FormData');
+    // 尝试直接发送 base64 数据而不是 Blob
+    console.log('Processing image data, original length:', p.image.length);
+    
+    let imageData: string;
+    if (p.image.startsWith('data:')) {
+      // 提取 base64 部分
+      const matches = p.image.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.*)$/);
+      if (matches) {
+        imageData = matches[2];
+        console.log('Extracted base64 data, length:', imageData.length);
+      } else {
+        throw new Error('Invalid data URL format');
+      }
+    } else {
+      imageData = p.image;
+    }
+    
+    // 尝试两种方式：1. 直接发送 base64 字符串，2. 转换为 Blob
+    console.log('Trying base64 string approach first');
+    formData.append('image', imageData);
+    console.log('Base64 image data appended to FormData');
 
     const headers = {
       'Authorization': `Bearer ${key}`
