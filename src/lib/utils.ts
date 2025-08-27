@@ -37,14 +37,14 @@ export function simpleFileToDataURL(file: File): Promise<string> {
   });
 }
 
-// 压缩图片并转换为DataURL
-export function compressImage(file: File, maxWidth: number = 1920, maxHeight: number = 1080, quality: number = 0.8): Promise<string> {
+// 压缩图片并转换为DataURL（优化版）
+export function compressImage(file: File, maxWidth: number = 1920, maxHeight: number = 1080, quality: number = 0.85): Promise<string> {
   return new Promise((resolve, reject) => {
     console.log('Compressing image, original size:', file.size, 'type:', file.type);
     
-    // 如果文件已经很小，直接返回不压缩的版本
-    if (file.size <= 1024 * 1024) { // 1MB以下不压缩
-      console.log('File size is small, using simple conversion');
+    // 调整压缩阈值，2MB以下不压缩，避免不必要的质量损失
+    if (file.size <= 2 * 1024 * 1024) {
+      console.log('File size is acceptable, using simple conversion');
       return simpleFileToDataURL(file).then(resolve).catch(reject);
     }
     
@@ -58,7 +58,6 @@ export function compressImage(file: File, maxWidth: number = 1920, maxHeight: nu
           
           if (!ctx) {
             console.error('Failed to get canvas context');
-            // 回退到简单转换
             return simpleFileToDataURL(file).then(resolve).catch(reject);
           }
           
@@ -66,32 +65,60 @@ export function compressImage(file: File, maxWidth: number = 1920, maxHeight: nu
           let { width, height } = img;
           console.log('Original image dimensions:', width, 'x', height);
           
+          // 更智能的尺寸压缩策略
           if (width > maxWidth || height > maxHeight) {
             const ratio = Math.min(maxWidth / width, maxHeight / height);
-            width *= ratio;
-            height *= ratio;
-            console.log('Compressed image dimensions:', width, 'x', height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+            console.log('Resized image dimensions:', width, 'x', height);
           }
           
           canvas.width = width;
           canvas.height = height;
           
+          // 使用更好的图像渲染质量
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          
           // 绘制压缩后的图片
           ctx.drawImage(img, 0, 0, width, height);
           
+          // 根据文件类型选择最佳压缩格式
+          let outputFormat = file.type;
+          let outputQuality = quality;
+          
+          // 对于大文件，使用更激进的压缩
+          if (file.size > 5 * 1024 * 1024) {
+            outputFormat = 'image/jpeg'; // 强制使用JPEG获得更好的压缩率
+            outputQuality = 0.75;
+          }
+          
           // 转换为压缩后的DataURL
-          const compressedDataUrl = canvas.toDataURL(file.type, quality);
-          console.log('Compression complete, new DataURL length:', compressedDataUrl.length);
+          const compressedDataUrl = canvas.toDataURL(outputFormat, outputQuality);
+          
+          // 验证压缩结果
+          if (!compressedDataUrl || compressedDataUrl.length < 100) {
+            console.warn('Compression resulted in invalid data, using original');
+            return simpleFileToDataURL(file).then(resolve).catch(reject);
+          }
+          
+          const compressionRatio = compressedDataUrl.length / (file.size * 1.37); // base64编码约增加37%
+          console.log('Compression complete:', {
+            originalSize: file.size,
+            compressedLength: compressedDataUrl.length,
+            compressionRatio: compressionRatio.toFixed(2),
+            format: outputFormat,
+            quality: outputQuality
+          });
+          
           resolve(compressedDataUrl);
         } catch (error) {
           console.error('Canvas compression failed:', error);
-          // 回退到简单转换
           simpleFileToDataURL(file).then(resolve).catch(reject);
         }
       };
       img.onerror = (error) => {
         console.error('Image load failed:', error);
-        // 回退到简单转换
         simpleFileToDataURL(file).then(resolve).catch(reject);
       };
       img.src = e.target?.result as string;
@@ -366,20 +393,38 @@ export async function createTask(
     onRetry?: (attempt: number, error: ApiError) => void;
   }
 ): Promise<CreateTaskResponse> {
-  const { maxRetries = 3, timeoutMs = 300000, onRetry } = options || {};
+  // 根据模型类型调整超时时间和重试策略
+  const isNanoBanana = request.model === 'nano-banana';
+  const defaultTimeout = isNanoBanana ? 600000 : 300000; // nano-banana使用10分钟超时
+  const defaultRetries = isNanoBanana ? 2 : 3; // nano-banana减少重试次数，避免过度重试
+  
+  const { maxRetries = defaultRetries, timeoutMs = defaultTimeout, onRetry } = options || {};
   
   // 检查是否为 nano-banana 图生图任务
   const isNanoBananaI2I = request.model === 'nano-banana' && request.params?.mode === 'image-to-image' && request.params?.image;
 
   let lastError: ApiError;
+  const taskStartTime = Date.now();
+  
+  console.log(`🚀 Task creation started:`, {
+    model: request.model,
+    mode: request.params?.mode || 'text-to-image',
+    hasImage: !!request.params?.image,
+    timeout: timeoutMs,
+    maxRetries,
+    timestamp: new Date().toISOString()
+  });
   
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const attemptStartTime = Date.now();
     try {
+      console.log(`⏳ Attempt ${attempt + 1}/${maxRetries + 1} started at ${new Date().toISOString()}`);
       let response: Response;
 
       if (isNanoBananaI2I) {
         // --- 使用 FormData 发送图生图请求 ---
-        console.log('Creating FormData for nano-banana i2i');
+        const formDataStartTime = Date.now();
+        console.log('📦 Creating FormData for nano-banana i2i');
         const formData = new FormData();
         formData.append('model', request.model);
         formData.append('prompt', request.prompt);
@@ -399,9 +444,14 @@ export async function createTask(
         // 处理图片
         const imageUrl = request.params?.image;
         if (imageUrl) {
+          const blobStartTime = Date.now();
           const imageBlob = dataURLtoBlob(imageUrl);
+          const blobEndTime = Date.now();
           formData.append('image', imageBlob, 'upload.png'); // 'image' 是后端期望的字段名
-          console.log('Added image to FormData, blob size:', imageBlob.size);
+          console.log('🖼️ Image processing completed:', {
+            blobSize: imageBlob.size,
+            processingTime: blobEndTime - blobStartTime + 'ms'
+          });
         } else {
           throw new Error('Image is required for image-to-image generation.');
         }
@@ -411,12 +461,19 @@ export async function createTask(
           headers['x-api-key'] = apiKey;
         }
         
+        const formDataEndTime = Date.now();
+        console.log(`📋 FormData preparation completed in ${formDataEndTime - formDataStartTime}ms`);
+        
+        const requestStartTime = Date.now();
         // 注意：当 body 是 FormData 时，浏览器会自动设置 Content-Type
         response = await fetchWithTimeout('/api/tasks', {
           method: 'POST',
           headers,
           body: formData
         }, timeoutMs);
+        
+        const requestEndTime = Date.now();
+        console.log(`🌐 FormData request completed in ${requestEndTime - requestStartTime}ms`);
 
       } else {
         // --- 默认使用 JSON 发送请求 ---
@@ -426,11 +483,15 @@ export async function createTask(
         if (apiKey) {
           headers['x-api-key'] = apiKey;
         }
+        const requestStartTime = Date.now();
         response = await fetchWithTimeout('/api/tasks', {
           method: 'POST',
           headers,
           body: JSON.stringify(request)
         }, timeoutMs);
+        
+        const requestEndTime = Date.now();
+        console.log(`🌐 JSON request completed in ${requestEndTime - requestStartTime}ms`);
       }
       
       if (!response.ok) {
@@ -453,6 +514,13 @@ export async function createTask(
         
         lastError = error;
         
+        const attemptTime = Date.now() - attemptStartTime;
+        console.log(`❌ Attempt ${attempt + 1} failed after ${attemptTime}ms:`, {
+          status: error.status,
+          message: error.message,
+          isRetryable: error.isRetryable
+        });
+        
         // 通知重试回调
         if (onRetry) {
           onRetry(attempt + 1, error);
@@ -460,16 +528,40 @@ export async function createTask(
         
         // 计算重试延迟（指数退避）
         const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+        console.log(`⏰ Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
       
-      return response.json();
+      const parseStartTime = Date.now();
+      const result = await response.json();
+      const parseEndTime = Date.now();
+      const totalTime = Date.now() - taskStartTime;
+      const attemptTime = Date.now() - attemptStartTime;
+      
+      console.log(`✅ Task creation successful:`, {
+        attempt: attempt + 1,
+        attemptTime: attemptTime + 'ms',
+        parseTime: (parseEndTime - parseStartTime) + 'ms',
+        totalTime: totalTime + 'ms',
+        taskId: result.taskId || 'unknown'
+      });
+      
+      return result;
     } catch (error) {
       const apiError = error as ApiError;
+      const attemptTime = Date.now() - attemptStartTime;
+      
+      console.log(`💥 Attempt ${attempt + 1} exception after ${attemptTime}ms:`, {
+        name: apiError.name,
+        message: apiError.message,
+        isRetryable: isRetryableError(apiError)
+      });
       
       // 如果是最后一次尝试或错误不可重试，直接抛出
       if (attempt === maxRetries || !isRetryableError(apiError)) {
+        const totalTime = Date.now() - taskStartTime;
+        console.log(`🚫 Task creation failed after ${totalTime}ms total time`);
         apiError.message = createFriendlyErrorMessage(apiError);
         throw apiError;
       }
@@ -483,11 +575,14 @@ export async function createTask(
       
       // 计算重试延迟（指数退避）
       const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+      console.log(`⏰ Retrying in ${delay}ms...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
   
   // 如果所有重试都失败了
+  const totalTime = Date.now() - taskStartTime;
+  console.log(`🚫 All retries exhausted after ${totalTime}ms total time`);
   lastError!.message = createFriendlyErrorMessage(lastError!);
   throw lastError!;
 }

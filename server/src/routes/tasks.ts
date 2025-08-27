@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { dispatchGenerate } from "../adapters/index.js";
+import { saveTask, getTask } from "../../../api/tasks.js";
 
 const tasks = new Map();
 
@@ -140,17 +141,26 @@ export default async function routes(app: FastifyInstance) {
         
         const result = await dispatchGenerate(model, requestPayload, apiKey);
         
-        const id = `tsk_${Date.now()}`;
+        const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const { urls, seed } = result;
         const responsePayload = {
           id,
           status: "succeeded",
           outputUrls: urls,
           seed,
-          meta: { model, params },
+          meta: { model, params: params || {} },
           prompt,
         };
+        
+        // 保存到内存和数据库
         tasks.set(id, responsePayload);
+        try {
+          await saveTask(responsePayload);
+          console.log(`Task ${id} saved to database successfully`);
+        } catch (dbError) {
+          console.error(`Failed to save task ${id} to database:`, dbError);
+        }
+        
         res.send({ id, seed });
 
       } catch (e: any) {
@@ -178,7 +188,7 @@ export default async function routes(app: FastifyInstance) {
       try {
         // 对于Tool Calling格式，直接传递完整的请求体给适配器
         const result = await dispatchGenerate(model, req.body, apiKey);
-        const id = `tsk_${Date.now()}`;
+        const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         // 处理同步任务
         const { urls, seed } = result;
@@ -187,10 +197,19 @@ export default async function routes(app: FastifyInstance) {
           status: "succeeded",
           outputUrls: urls,
           seed,
-          meta: { model, tool_calling: true },
+          meta: { model, params: { tool_calling: true } },
           prompt: messages[0]?.content || "Tool calling request",
         };
+        
+        // 保存到内存和数据库
         tasks.set(id, payload);
+        try {
+          await saveTask(payload);
+          console.log(`Task ${id} saved to database successfully`);
+        } catch (dbError) {
+          console.error(`Failed to save task ${id} to database:`, dbError);
+        }
+        
         res.send({ id, seed });
       } catch (e: any) {
         res.status(502).send(e?.message || "provider error");
@@ -216,7 +235,7 @@ export default async function routes(app: FastifyInstance) {
       }
       
       const result = await dispatchGenerate(model, requestPayload, apiKey);
-      const id = `tsk_${Date.now()}`;
+      const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       // 处理同步任务
       const { urls, seed } = result;
@@ -225,10 +244,19 @@ export default async function routes(app: FastifyInstance) {
         status: "succeeded",
         outputUrls: urls,
         seed,
-        meta: { model, params },
+        meta: { model, params: params || {} },
         prompt,
       };
+      
+      // 保存到内存和数据库
       tasks.set(id, responsePayload);
+      try {
+        await saveTask(responsePayload);
+        console.log(`Task ${id} saved to database successfully`);
+      } catch (dbError) {
+        console.error(`Failed to save task ${id} to database:`, dbError);
+      }
+      
       res.send({ id, seed });
     } catch (e: any) {
       res.status(502).send(e?.message || "provider error");
@@ -237,7 +265,23 @@ export default async function routes(app: FastifyInstance) {
 
   app.get("/api/tasks/:id", async (req, res) => {
     const id = (req.params as any)?.id as string;
-    const t = tasks.get(id);
+    
+    // 先从内存查询
+    let t = tasks.get(id);
+    
+    // 如果内存中没有，从数据库查询
+    if (!t) {
+      try {
+        t = await getTask(id);
+        if (t) {
+          // 将数据库中的任务缓存到内存
+          tasks.set(id, t);
+        }
+      } catch (dbError) {
+        console.error(`Failed to get task ${id} from database:`, dbError);
+      }
+    }
+    
     if (!t) return res.status(404).send("not found");
     
     res.send(t);
@@ -249,7 +293,23 @@ export default async function routes(app: FastifyInstance) {
     if (!taskId) {
       return res.status(400).send("Missing taskId parameter");
     }
-    const t = tasks.get(taskId);
+    
+    // 先从内存查询
+    let t = tasks.get(taskId);
+    
+    // 如果内存中没有，从数据库查询
+    if (!t) {
+      try {
+        t = await getTask(taskId);
+        if (t) {
+          // 将数据库中的任务缓存到内存
+          tasks.set(taskId, t);
+        }
+      } catch (dbError) {
+        console.error(`Failed to get task ${taskId} from database:`, dbError);
+      }
+    }
+    
     if (!t) return res.status(404).send("not found");
     
     res.send(t);

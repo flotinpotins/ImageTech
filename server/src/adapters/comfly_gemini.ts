@@ -6,23 +6,50 @@
 
 // import FormData from 'form-data'; // 暂时不使用，因为fetch API与form-data库兼容性问题
 
-// 并发控制 - 限制同时进行的请求数量
+// 并发控制 - 限制同时进行的请求数量（优化版）
 let activeRequests = 0;
-const MAX_CONCURRENT_REQUESTS = 3;
+const MAX_CONCURRENT_REQUESTS = 5; // 支持全速模式的并发数
+const MAX_WAIT_TIME = 300000; // 最大等待时间5分钟
 
 const waitForSlot = async (): Promise<void> => {
+  const startTime = Date.now();
+  
   while (activeRequests >= MAX_CONCURRENT_REQUESTS) {
-    console.log(`Waiting for request slot... (active: ${activeRequests}/${MAX_CONCURRENT_REQUESTS})`);
+    // 检查是否超过最大等待时间
+    if (Date.now() - startTime > MAX_WAIT_TIME) {
+      console.error(`Slot wait timeout after ${MAX_WAIT_TIME}ms, forcing slot acquisition`);
+      // 强制重置并发计数器，避免死锁
+      activeRequests = Math.max(0, MAX_CONCURRENT_REQUESTS - 1);
+      break;
+    }
+    
+    console.log(`Waiting for request slot... (active: ${activeRequests}/${MAX_CONCURRENT_REQUESTS}, waited: ${Date.now() - startTime}ms)`);
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
+  
   activeRequests++;
-  console.log(`Request slot acquired (active: ${activeRequests}/${MAX_CONCURRENT_REQUESTS})`);
+  console.log(`Request slot acquired (active: ${activeRequests}/${MAX_CONCURRENT_REQUESTS}, wait time: ${Date.now() - startTime}ms)`);
 };
 
 const releaseSlot = (): void => {
+  const previousCount = activeRequests;
   activeRequests = Math.max(0, activeRequests - 1);
-  console.log(`Request slot released (active: ${activeRequests}/${MAX_CONCURRENT_REQUESTS})`);
+  console.log(`Request slot released (${previousCount} -> ${activeRequests}/${MAX_CONCURRENT_REQUESTS})`);
+  
+  // 安全检查：如果计数器异常，重置为0
+  if (activeRequests < 0) {
+    console.warn('Active requests count went negative, resetting to 0');
+    activeRequests = 0;
+  }
 };
+
+// 定期检查并发计数器健康状态
+setInterval(() => {
+  if (activeRequests > MAX_CONCURRENT_REQUESTS) {
+    console.warn(`Active requests count exceeded limit (${activeRequests}/${MAX_CONCURRENT_REQUESTS}), resetting`);
+    activeRequests = MAX_CONCURRENT_REQUESTS;
+  }
+}, 60000); // 每分钟检查一次
 
 export type GeminiImageParams = {
   prompt: string;
@@ -42,6 +69,7 @@ export type GeminiImageEditParams = {
 };
 
 export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: string) {
+  const functionStartTime = Date.now();
   console.log('=== Gemini Image Generation Request (Dall-e Format) ===');
   console.log('Prompt:', p.prompt);
   console.log('Images count:', p.images?.length || 0);
@@ -51,10 +79,28 @@ export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: s
   console.log('API Key provided:', !!apiKey);
   console.log('======================================');
 
+  // 等待并发槽位
+  const slotWaitStartTime = Date.now();
+  await waitForSlot();
+  const slotWaitDuration = Date.now() - slotWaitStartTime;
+  console.log(`⏱️ Slot wait completed in ${slotWaitDuration}ms`);
+  let slotReleased = false;
+  
+  // 确保槽位一定会被释放的安全函数
+  const safeReleaseSlot = () => {
+    if (!slotReleased) {
+      releaseSlot();
+      slotReleased = true;
+    }
+  };
+
   // 使用新的base URL
   const base = 'https://ai.comfly.chat';
   const key = apiKey || process.env.PROVIDER_API_KEY!;
-  if (!key) throw new Error("MISSING_API_KEY");
+  if (!key) {
+    safeReleaseSlot();
+    throw new Error("MISSING_API_KEY");
+  }
 
   // 使用 OpenAI Dall-e 格式的接口
   const url = `${base}/v1/images/generations`;
@@ -131,16 +177,24 @@ export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: s
       throw new Error('GEMINI_NO_IMAGES_IN_RESPONSE');
     }
 
+    const totalDuration = Date.now() - functionStartTime;
+    console.log(`🎉 Image generation completed successfully in ${totalDuration}ms`);
     return imageUrls;
     
   } catch (err: any) {
+    const totalDuration = Date.now() - functionStartTime;
     if (err?.name === 'AbortError') {
+      console.error(`❌ Generation timeout after ${totalDuration}ms`);
       throw new Error('GEMINI_TIMEOUT');
     }
-    console.error('Gemini API Error:', err);
+    console.error(`❌ Error in generateGeminiImage after ${totalDuration}ms:`, err);
     throw err;
   } finally {
     clearTimeout(timeout);
+    // 确保释放并发控制槽位
+    safeReleaseSlot();
+    const totalDuration = Date.now() - functionStartTime;
+    console.log(`🏁 generateGeminiImage function completed in ${totalDuration}ms`);
   }
 }
 
@@ -149,16 +203,35 @@ export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: s
  * 使用 /v1/images/edits 接口
  */
 export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string) {
-  console.log('=== Gemini Image Edit Request ===');
-  console.log('Prompt:', p.prompt);
-  console.log('Image provided:', !!p.image);
-  console.log('Image length:', p.image ? p.image.length : 0);
-  console.log('Size:', p.size);
-  console.log('N:', p.n);
-  console.log('Quality:', p.quality);
-  console.log('Response format:', p.response_format || 'url');
-  console.log('API Key provided:', !!apiKey);
+  const functionStartTime = Date.now();
+  console.log('🚀 === Gemini Image Edit Request ===');
+  console.log('📋 Input params:', {
+    prompt: p.prompt,
+    imageProvided: !!p.image,
+    imageLength: p.image ? p.image.length : 0,
+    size: p.size,
+    n: p.n,
+    quality: p.quality,
+    responseFormat: p.response_format || 'url',
+    apiKeyProvided: !!apiKey,
+    timestamp: new Date().toISOString()
+  });
   console.log('======================================');
+
+  // 等待并发槽位
+  const slotWaitStartTime = Date.now();
+  await waitForSlot();
+  const slotWaitDuration = Date.now() - slotWaitStartTime;
+  console.log(`⏱️ Slot wait completed in ${slotWaitDuration}ms`);
+  let slotReleased = false;
+  
+  // 确保槽位一定会被释放的安全函数
+  const safeReleaseSlot = () => {
+    if (!slotReleased) {
+      releaseSlot();
+      slotReleased = true;
+    }
+  };
 
   // 使用新的base URL
   const base = 'https://ai.comfly.chat';
@@ -190,9 +263,10 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
         console.log('Downloaded image buffer, size:', buffer.length, 'type:', contentType);
         return { buffer, mimeType: contentType };
       } catch (error) {
-        console.error('Error downloading image:', error);
-        throw new Error(`DOWNLOAD_IMAGE_FAILED: ${error.message}`);
-      }
+      console.error('Error downloading image:', error);
+      safeReleaseSlot();
+      throw new Error(`DOWNLOAD_IMAGE_FAILED: ${error instanceof Error ? error.message : String(error)}`);
+    }
     }
 
     // 处理 dataURL 或纯 base64
@@ -229,21 +303,23 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
       console.error('Input length:', input.length);
       console.error('Base64 length:', base64.length);
       console.error('MIME type:', mimeType);
-      throw new Error(`CONVERT_TO_BUFFER_FAILED: ${error.message}`);
+      safeReleaseSlot();
+      throw new Error(`CONVERT_TO_BUFFER_FAILED: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   try {
-    // 等待并发控制槽位
-    await waitForSlot();
     
     // 添加图片文件
-    console.log('Processing image for FormData...');
+    const imageProcessStartTime = Date.now();
+    console.log('🖼️ Processing image for FormData...');
     console.log('Original image data type:', typeof p.image);
     console.log('Original image data length:', p.image ? p.image.length : 0);
     console.log('Image data preview:', p.image ? p.image.substring(0, 100) + '...' : 'null');
     
     const { buffer: imageBuffer, mimeType } = await dataToBuffer(p.image);
+    const imageProcessDuration = Date.now() - imageProcessStartTime;
+    console.log(`⏱️ Image processing completed in ${imageProcessDuration}ms`);
     console.log('Image Buffer created, size:', imageBuffer.length, 'mimeType:', mimeType);
     
     // 验证Buffer内容
@@ -269,7 +345,7 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
     }
     
     // 确保创建正确的 Blob 对象
-    const imageBlob = new Blob([imageBuffer], { type: mimeType });
+    const imageBlob = new Blob([new Uint8Array(imageBuffer)], { type: mimeType });
     console.log('Created Blob:', {
       type: imageBlob.type,
       size: imageBlob.size,
@@ -284,9 +360,11 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
     
     formData.append('image', imageBlob, 'upload.png');
     
-    console.log('FormData created with native FormData');
+    const formDataCreateDuration = Date.now() - imageProcessStartTime;
+    console.log('📦 FormData created with native FormData');
     console.log('Image blob size:', imageBlob.size);
     console.log('Image content type:', imageBlob.type);
+    console.log(`⏱️ FormData creation completed in ${formDataCreateDuration}ms`);
 
     const headers = {
       'Authorization': `Bearer ${key}`
@@ -360,6 +438,8 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
         throw new Error('GEMINI_EDIT_NO_IMAGES_IN_RESPONSE');
       }
 
+      const totalDuration = Date.now() - functionStartTime;
+      console.log(`🎉 Image edit completed successfully in ${totalDuration}ms`);
       return imageUrls;
 
       } catch (err: any) {
@@ -430,10 +510,13 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
     throw lastError || new Error('All retry attempts failed');
 
   } catch (error) {
-    console.error('Error in editGeminiImage:', error);
+    const totalDuration = Date.now() - functionStartTime;
+    console.error(`❌ Error in editGeminiImage after ${totalDuration}ms:`, error);
     throw error;
   } finally {
     // 确保释放并发控制槽位
-    releaseSlot();
+    safeReleaseSlot();
+    const totalDuration = Date.now() - functionStartTime;
+    console.log(`🏁 editGeminiImage function completed in ${totalDuration}ms`);
   }
 }

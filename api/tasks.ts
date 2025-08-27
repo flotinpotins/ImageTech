@@ -13,7 +13,7 @@ function createDbClient() {
 }
 
 // 数据库操作函数
-async function saveTask(taskData: any) {
+export async function saveTask(taskData: any) {
   const client = createDbClient();
   try {
     await client.connect();
@@ -42,10 +42,26 @@ async function saveTask(taskData: any) {
     // 保存图片URLs
     if (taskData.outputUrls && taskData.outputUrls.length > 0) {
       for (const url of taskData.outputUrls) {
+        // 从URL或参数中推断图片格式
+        let format = 'png'; // 默认格式
+        if (url.includes('data:image/')) {
+          const mimeMatch = url.match(/data:image\/(\w+);/);
+          if (mimeMatch) {
+            format = mimeMatch[1] === 'jpeg' ? 'jpg' : mimeMatch[1];
+          }
+        } else if (taskData.meta?.params?.imageFormat) {
+          format = taskData.meta.params.imageFormat;
+        }
+        
+        // 确保format不为空
+        if (!format || format.trim() === '') {
+          format = 'png';
+        }
+        
         await client.query(
-          `INSERT INTO images (task_id, url, provider, created_at) 
-           VALUES ($1, $2, $3, NOW()) ON CONFLICT DO NOTHING`,
-          [taskData.id, url, taskData.meta?.model || 'unknown']
+          `INSERT INTO images (task_id, url, provider, format, created_at) 
+           VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT DO NOTHING`,
+          [taskData.id, url, taskData.meta?.model || 'unknown', format]
         );
       }
     }
@@ -54,7 +70,7 @@ async function saveTask(taskData: any) {
   }
 }
 
-async function getTask(taskId: string) {
+export async function getTask(taskId: string) {
   const client = createDbClient();
   try {
     await client.connect();

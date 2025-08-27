@@ -33,7 +33,7 @@ function getFileExtension(mimeType: string): string {
 
 // 并发控制变量
 let activeGPTRequests = 0;
-const MAX_CONCURRENT_GPT_REQUESTS = 3;
+const MAX_CONCURRENT_GPT_REQUESTS = 5; // 支持全速模式的并发数
 
 // 等待可用槽位
 async function waitForGPTSlot(): Promise<void> {
