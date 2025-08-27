@@ -118,7 +118,7 @@ export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: s
       throw new Error('GEMINI_NO_IMAGES_IN_RESPONSE');
     }
 
-    return imageUrls;
+    return { urls: imageUrls, seed: undefined };
 
   } catch (err: any) {
     if (err?.name === 'AbortError') {
@@ -221,7 +221,7 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
         throw new Error('GEMINI_EDIT_NO_IMAGES_IN_RESPONSE');
       }
 
-      return imageUrls;
+      return { urls: imageUrls, seed: undefined };
 
     } catch (err: any) {
       if (err?.name === 'AbortError') {
