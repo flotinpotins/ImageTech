@@ -130,7 +130,7 @@ export default async function routes(app: FastifyInstance) {
         
         const result = await dispatchGenerate(model, requestPayload, apiKey);
         
-        const id = `tsk_${Date.now()}`;
+        const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const { urls, seed } = result;
         const responsePayload = {
           id,
@@ -168,7 +168,7 @@ export default async function routes(app: FastifyInstance) {
       try {
         // 对于Tool Calling格式，直接传递完整的请求体给适配器
         const result = await dispatchGenerate(model, req.body, apiKey);
-        const id = `tsk_${Date.now()}`;
+        const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         // 处理同步任务
         const { urls, seed } = result;
@@ -206,7 +206,7 @@ export default async function routes(app: FastifyInstance) {
       }
       
       const result = await dispatchGenerate(model, requestPayload, apiKey);
-      const id = `tsk_${Date.now()}`;
+      const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       // 处理同步任务
       const { urls, seed } = result;
