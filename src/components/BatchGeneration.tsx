@@ -280,10 +280,12 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     let taskImages = task.parsed.images || [];
     // 优先使用state.model，确保使用用户当前选择的模型
     const currentModel = state.model || defaultForm.model;
+    // 获取当前模式，优先使用state.mode，然后是task.parsed.mode，最后是defaultForm.mode
+    const currentMode = state.mode || task.parsed.mode || defaultForm.mode;
     const isImageBasedModel = (
       (task.parsed.model as string) === 'doubao-seededit-3-0-i2i-250628' ||
       currentModel === 'gpt-image-1' ||
-      (currentModel === 'nano-banana' && task.parsed.mode === 'image-to-image')
+      (currentModel === 'nano-banana' && currentMode === 'image-to-image')
     );
 
     if (isImageBasedModel && batchImages.length > 0) {
@@ -301,6 +303,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       ...defaultForm,
       ...task.parsed,
       model: currentModel as ModelType, // 强制使用当前选择的模型，而不是解析时的模型
+      mode: currentMode, // 使用当前选择的模式
       images: taskImages,
       size: (size || defaultForm.size) as SizeOption, // 使用当前选择的尺寸
       imageFormat: (state.imageFormat || 'png') as ImageFormat, // 使用当前选择的图像格式
