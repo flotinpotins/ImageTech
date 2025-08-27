@@ -1,5 +1,7 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { generateGeminiImage, editGeminiImage } from './adapters/comfly_gemini.js';
+import formidable from 'formidable';
+import { readFileSync } from 'fs';
 
 const tasks = new Map<string, any>();
 
@@ -276,6 +278,31 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
   throw new Error(`UNSUPPORTED_MODEL:${model}`);
 }
 
+// Helper function to parse multipart form data
+async function parseMultipartForm(req: VercelRequest): Promise<{ fields: any; files: any }> {
+  return new Promise((resolve, reject) => {
+    const form = formidable({
+      maxFileSize: 50 * 1024 * 1024, // 50MB
+      keepExtensions: true,
+    });
+    
+    form.parse(req, (err, fields, files) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({ fields, files });
+      }
+    });
+  });
+}
+
+// Helper function to convert file to base64 data URL
+function fileToDataURL(filePath: string, mimeType: string): string {
+  const fileBuffer = readFileSync(filePath);
+  const base64 = fileBuffer.toString('base64');
+  return `data:${mimeType};base64,${base64}`;
+}
+
 // Main Handler
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -288,11 +315,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
   try {
     if (req.method === 'POST') {
-      const body = req.body;
       const apiKey = req.headers['x-api-key'] as string;
       
       if (!apiKey) {
         return res.status(401).json({ error: { code: "invalid_request", message: "未提供令牌", type: "new_api_error" } });
+      }
+      
+      let body: any;
+      
+      // Check if request is multipart/form-data
+      const contentType = req.headers['content-type'] || '';
+      if (contentType.includes('multipart/form-data')) {
+        console.log('Processing multipart/form-data request');
+        
+        try {
+          const { fields, files } = await parseMultipartForm(req);
+          console.log('Parsed fields:', Object.keys(fields));
+          console.log('Parsed files:', Object.keys(files));
+          
+          // Convert formidable fields format to our expected format
+          body = {
+            model: Array.isArray(fields.model) ? fields.model[0] : fields.model,
+            prompt: Array.isArray(fields.prompt) ? fields.prompt[0] : fields.prompt,
+            params: {
+              mode: Array.isArray(fields.mode) ? fields.mode[0] : fields.mode,
+              response_format: Array.isArray(fields.response_format) ? fields.response_format[0] : fields.response_format,
+            }
+          };
+          
+          // Handle uploaded image file
+          if (files.image) {
+            const imageFile = Array.isArray(files.image) ? files.image[0] : files.image;
+            if (imageFile && imageFile.filepath) {
+              // Convert uploaded file to data URL
+              const mimeType = imageFile.mimetype || 'image/png';
+              const dataURL = fileToDataURL(imageFile.filepath, mimeType);
+              body.params.image = dataURL;
+              console.log('Image converted to data URL, size:', dataURL.length);
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing multipart form:', parseError);
+          return res.status(400).json({ error: 'Failed to parse multipart form data' });
+        }
+      } else {
+        // Regular JSON request
+        body = req.body;
       }
       
       if (!body || !body.model || !body.prompt) {
