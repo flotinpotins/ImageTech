@@ -244,6 +244,36 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
     }, apiKey);
   }
 
+  if (model === "nano-banana") {
+    const { generateGeminiImage, editGeminiImage } = await import('./adapters/comfly_gemini');
+    const mode = payload?.mode ?? payload?.params?.mode ?? 'text-to-image';
+    
+    console.log('nano-banana模型处理:', { mode, hasImages: !!(payload?.images ?? payload?.params?.images) });
+    
+    if (mode === 'image-to-image') {
+      const images = payload?.images ?? payload?.params?.images;
+      if (!images || images.length === 0) {
+        throw new Error('NANO_BANANA_MISSING_IMAGE');
+      }
+      return editGeminiImage({
+        prompt: payload.prompt,
+        image: images[0],
+        size: payload?.size ?? payload?.params?.size,
+        n: payload?.n ?? payload?.params?.n,
+        quality: payload?.quality ?? payload?.params?.quality,
+        response_format: payload?.response_format ?? payload?.params?.response_format,
+      }, apiKey);
+    } else {
+      return generateGeminiImage({
+        prompt: payload.prompt,
+        size: payload?.size ?? payload?.params?.size,
+        n: payload?.n ?? payload?.params?.n,
+        quality: payload?.quality ?? payload?.params?.quality,
+        response_format: payload?.response_format ?? payload?.params?.response_format,
+      }, apiKey);
+    }
+  }
+
   throw new Error(`UNSUPPORTED_MODEL:${model}`);
 }
 
