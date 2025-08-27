@@ -1,4 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { generateGeminiImage, editGeminiImage } from './adapters/comfly_gemini';
 
 const tasks = new Map<string, any>();
 
@@ -234,7 +235,6 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
 
   
   if (model === "gemini-2.5-flash-image-preview") {
-    const { generateGeminiImage } = await import('./adapters/comfly_gemini');
     return generateGeminiImage({
       prompt: payload.prompt,
       images: payload?.images ?? payload?.params?.images,
@@ -245,7 +245,6 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
   }
 
   if (model === "nano-banana") {
-    const { generateGeminiImage, editGeminiImage } = await import('./adapters/comfly_gemini');
     const mode = payload?.mode ?? payload?.params?.mode ?? 'text-to-image';
     
     console.log('nano-banana模型处理:', { mode, hasImage: !!(payload?.image ?? payload?.params?.image) });
