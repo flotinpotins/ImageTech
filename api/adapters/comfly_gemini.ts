@@ -189,8 +189,11 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
   
   try {
     // 添加图片文件
+    console.log('Converting image to blob, original length:', p.image.length);
     const imageBlob = await dataToBlob(p.image);
+    console.log('Blob created successfully, size:', imageBlob.size, 'type:', imageBlob.type);
     formData.append('image', imageBlob, 'image.png');
+    console.log('Image blob appended to FormData');
 
     const headers = {
       'Authorization': `Bearer ${key}`
