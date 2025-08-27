@@ -67,6 +67,7 @@ interface BatchGenerationProps {
     quality?: 'high' | 'medium' | 'low';
     selectedMasks?: string[];
     model: string;
+    mode?: 'text-to-image' | 'image-to-image';
     imageFormat?: ImageFormat;
     imageNaming?: {
       enabled: boolean;
@@ -243,13 +244,14 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
 
     let parsedTasks = parseBatchInput(inputText, state.model || defaultForm.model);
     
-    // 应用prepend和append提示词
-    if (prependPrompt || appendPrompt) {
+    // 应用prepend和append提示词，以及当前选择的模式
+    if (prependPrompt || appendPrompt || state.mode) {
       parsedTasks = parsedTasks.map(task => ({
         ...task,
         parsed: task.parsed ? {
           ...task.parsed,
-          prompt: `${prependPrompt}${task.parsed.prompt || ''}${appendPrompt}`.trim()
+          prompt: `${prependPrompt}${task.parsed.prompt || ''}${appendPrompt}`.trim(),
+          mode: state.mode || task.parsed.mode || 'text-to-image' // 使用当前选择的模式
         } : task.parsed
       }));
     }
@@ -280,7 +282,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     const currentModel = state.model || defaultForm.model;
     const isImageBasedModel = (
       task.parsed.model === 'doubao-seededit-3-0-i2i-250628' ||
-      currentModel === 'gpt-image-1'
+      currentModel === 'gpt-image-1' ||
+      (currentModel === 'nano-banana' && task.parsed.mode === 'image-to-image')
     );
 
     if (isImageBasedModel && batchImages.length > 0) {
@@ -347,7 +350,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       console.log(`Calling createTask for task ${task.id}`);
       const createResponse = await createTask(request, apiKey, {
         maxRetries: 0,
-        timeoutMs: 180000,
+        timeoutMs: 300000,
         onRetry: (attempt, error) => {
           console.log(`Task ${task.id} retry attempt ${attempt}:`, error.message);
           updateTask(task.id, { 
@@ -855,6 +858,40 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
 
           </div>
         </details>
+
+        {/* nano-banana 模式选择 */}
+        {state.model === 'nano-banana' && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">生成模式</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setState({ mode: 'text-to-image' })}
+                className={`px-3 py-2 text-sm rounded-md border transition-colors flex-1 ${
+                  (state.mode || 'text-to-image') === 'text-to-image'
+                    ? 'bg-blue-50 border-blue-200 text-blue-700'
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                文生图
+              </button>
+              <button
+                type="button"
+                onClick={() => setState({ mode: 'image-to-image' })}
+                className={`px-3 py-2 text-sm rounded-md border transition-colors flex-1 ${
+                  state.mode === 'image-to-image'
+                    ? 'bg-blue-50 border-blue-200 text-blue-700'
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                图生图
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {state.mode === 'image-to-image' ? '基于参考图片进行图像编辑和风格转换' : '根据文字描述生成图像'}
+            </p>
+          </div>
+        )}
 
         {/* 质量选项 - 独立显示，仅在GPT模型下可见 */}
         {state.model === 'gpt-image-1' && (

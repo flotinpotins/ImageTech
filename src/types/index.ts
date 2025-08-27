@@ -1,5 +1,14 @@
 // 模型类型
-export type ModelType = 'jimeng-t2i' | 'gpt-image-1' | 'doubao-seededit-3-0-i2i-250628';
+export type ModelType = 
+  | 'jimeng-t2i'
+  | 'gpt-image-1'
+  | 'nano-banana';
+
+// 生成模式
+export type GenerationMode = 'text-to-image' | 'image-to-image';
+
+// 支持图生图的模型
+export const IMAGE_EDIT_MODELS: ModelType[] = ['nano-banana'];
 
 // 任务状态
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed';
@@ -15,6 +24,7 @@ export interface SingleGenerationForm {
   prompt: string;
   size: SizeOption;
   model: ModelType;
+  mode: GenerationMode; // 生成模式：文生图或图生图
   imageFormat: ImageFormat; // 图像输出格式
   seed?: number;
   guidanceScale?: number;
@@ -81,6 +91,7 @@ export interface Preset {
   id: string;
   title: string;
   model: ModelType;
+  mode?: GenerationMode; // 生成模式，可选以兼容旧预设
   prompt: string;
   size: SizeOption;
   guidanceScale?: number;

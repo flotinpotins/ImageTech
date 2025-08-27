@@ -1,5 +1,6 @@
 import { generateJimengT2I } from "./jimeng_t2i";
 import { generateGPTImage } from "./gpt_image_1";
+import { generateGeminiImage } from "./comfly_gemini";
 
 export async function dispatchGenerate(model: string, payload: any, apiKey?: string) {
   if (model === "jimeng-t2i") {
@@ -24,8 +25,16 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
       imageFormat: payload?.imageFormat ?? payload?.params?.imageFormat,
     }, apiKey);
   }
-  
 
+  if (model === "gemini-2.5-flash-image-preview") {
+    return generateGeminiImage({
+      prompt: payload.prompt,
+      images: payload?.images ?? payload?.params?.images,
+      size: payload?.size ?? payload?.params?.size,
+      n: payload?.n ?? payload?.params?.n,
+      quality: payload?.quality ?? payload?.params?.quality,
+    }, apiKey);
+  }
   
   throw new Error(`UNSUPPORTED_MODEL:${model}`);
 }

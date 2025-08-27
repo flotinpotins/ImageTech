@@ -152,6 +152,25 @@ export async function buildTaskRequest(form: SingleGenerationForm): Promise<Crea
     }
     
 
+    
+    case 'nano-banana': {
+      // nano-banana 支持文生图和图生图两种模式
+      const mode = form.mode || 'text-to-image';
+      const requestData: any = {
+        response_format: 'url',
+        // 传递模式信息给后端
+        mode: mode,
+      };
+      
+      // 只有在图生图模式下才传递图片
+      if (mode === 'image-to-image' && images && images.length > 0) {
+        requestData.image = images[0];
+      }
+      
+      params = requestData;
+      break;
+    }
+
   }
   
   return {
@@ -248,6 +267,24 @@ async function fetchWithTimeout(url: string, options: globalThis.RequestInit, ti
   }
 }
 
+// dataURL to Blob conversion
+export function dataURLtoBlob(dataurl: string): Blob {
+  const arr = dataurl.split(',');
+  // The first part is like "data:image/png;base64"
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  if (!mimeMatch) {
+    throw new Error('Invalid data URL format');
+  }
+  const mime = mimeMatch[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new Blob([u8arr], { type: mime });
+}
+
 // API调用函数（增强版，支持重试和超时）
 export async function createTask(
   request: CreateTaskRequest, 
@@ -258,26 +295,69 @@ export async function createTask(
     onRetry?: (attempt: number, error: ApiError) => void;
   }
 ): Promise<CreateTaskResponse> {
-  const { maxRetries = 3, timeoutMs = 180000, onRetry } = options || {};
+  const { maxRetries = 3, timeoutMs = 300000, onRetry } = options || {};
   
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-  
-  // 如果提供了API Key，添加到请求头
-  if (apiKey) {
-    headers['x-api-key'] = apiKey;
-  }
-  
+  // 检查是否为 nano-banana 图生图任务
+  const isNanoBananaI2I = request.model === 'nano-banana' && request.params?.mode === 'image-to-image' && request.params?.image;
+
   let lastError: ApiError;
   
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetchWithTimeout('/api/tasks', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(request)
-      }, timeoutMs);
+      let response: Response;
+
+      if (isNanoBananaI2I) {
+        // --- 使用 FormData 发送图生图请求 ---
+        console.log('Creating FormData for nano-banana i2i');
+        const formData = new FormData();
+        formData.append('model', request.model);
+        formData.append('prompt', request.prompt);
+        
+        // 将 params 对象中的每个键值对添加到 formData
+        if (request.params) {
+          Object.entries(request.params).forEach(([key, value]) => {
+            // 图片将单独处理，避免重复添加
+            if (key !== 'image' && value !== undefined) {
+              formData.append(key, String(value));
+            }
+          });
+        }
+
+        // 处理图片
+        const imageUrl = request.params?.image;
+        if (imageUrl) {
+          const imageBlob = dataURLtoBlob(imageUrl);
+          formData.append('image', imageBlob, 'upload.png'); // 'image' 是后端期望的字段名
+        } else {
+          throw new Error('Image is required for image-to-image generation.');
+        }
+
+        const headers: Record<string, string> = {};
+        if (apiKey) {
+          headers['x-api-key'] = apiKey;
+        }
+        
+        // 注意：当 body 是 FormData 时，浏览器会自动设置 Content-Type
+        response = await fetchWithTimeout('/api/tasks', {
+          method: 'POST',
+          headers,
+          body: formData
+        }, timeoutMs);
+
+      } else {
+        // --- 默认使用 JSON 发送请求 ---
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (apiKey) {
+          headers['x-api-key'] = apiKey;
+        }
+        response = await fetchWithTimeout('/api/tasks', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(request)
+        }, timeoutMs);
+      }
       
       if (!response.ok) {
         let detail = '';
@@ -822,6 +902,13 @@ export function validateForm(form: SingleGenerationForm): string[] {
       if (typeof form.n !== 'number' || form.n < 1 || form.n > 10) {
         errors.push('生成数量 n 需在 1-10 之间');
       }
+    }
+  }
+
+  // nano-banana 校验
+  if (form.model === 'nano-banana' && form.mode === 'image-to-image') {
+    if (!form.images || form.images.length === 0) {
+      errors.push('图生图模式需要上传一张图片');
     }
   }
   

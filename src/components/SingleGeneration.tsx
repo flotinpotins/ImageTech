@@ -34,7 +34,8 @@ import {
 
 
 import { useToast } from '@/components/ui/use-toast';
-import type { SingleGenerationForm, HistoryItem, Preset, ImageNamingOption } from '@/types';
+import type { SingleGenerationForm, HistoryItem, Preset, ImageNamingOption, GenerationMode } from '@/types';
+import { IMAGE_EDIT_MODELS } from '@/types';
 
 interface SingleGenerationProps {
   form: SingleGenerationForm;
@@ -93,8 +94,14 @@ export function SingleGeneration({
   };
 
   const handleGenerate = async () => {
+    // 添加调试信息
+    console.log('=== FRONTEND DEBUG ===');
+    console.log('Form data:', JSON.stringify(form, null, 2));
+    
     // 表单验证
     const errors = validateForm(form);
+    console.log('Validation errors:', errors);
+    
     if (errors.length > 0) {
       toast({
         title: '表单验证失败',
@@ -128,11 +135,15 @@ export function SingleGeneration({
       
       // 构建请求
       const request = await buildTaskRequest(form);
+      console.log('Built request keys:', Object.keys(request));
+      if ((request as any).image) {
+        console.log('Built request includes image, length:', ((request as any).image as string).length);
+      }
       
       // 创建任务（带重试和进度反馈）
       const createResponse = await createTask(request, apiKey, {
         maxRetries: 0,
-        timeoutMs: 180000,
+        timeoutMs: 300000,
         onRetry: (attempt, error) => {
           toast({
             title: `重试中 (${attempt}/3)`,
@@ -337,6 +348,40 @@ export function SingleGeneration({
           </p>
         </div>
 
+        {/* 模式切换 */}
+        {IMAGE_EDIT_MODELS.includes(form.model) && (
+          <div>
+            <label className="text-sm font-medium">生成模式</label>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => updateForm({ mode: 'text-to-image', images: [] })}
+                className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                  (form.mode || 'text-to-image') === 'text-to-image'
+                    ? 'bg-blue-50 border-blue-200 text-blue-700'
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                文生图
+              </button>
+              <button
+                type="button"
+                onClick={() => updateForm({ mode: 'image-to-image' })}
+                className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                  form.mode === 'image-to-image'
+                    ? 'bg-blue-50 border-blue-200 text-blue-700'
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                图生图
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {(form.mode || 'text-to-image') === 'text-to-image' ? '根据文字描述生成图片' : '基于上传的图片进行编辑和风格转换'}
+            </p>
+          </div>
+        )}
+
         <div>
           <label className="text-sm font-medium">基础提示词</label>
           <Textarea
@@ -400,6 +445,21 @@ export function SingleGeneration({
 
         </div>
 
+        {/* nano-banana 图生图模式的图片上传 */}
+        {form.model === 'nano-banana' && form.mode === 'image-to-image' && (
+          <div>
+            <label className="text-sm font-medium">上传图片 <span className="text-red-500">*</span></label>
+            <div className="mt-2">
+              <ImageUpload
+                images={form.images || []}
+                onChange={(images) => updateForm({ images })}
+                maxImages={1}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">请上传一张图片作为编辑的基础图像</p>
+          </div>
+        )}
+
         {/* 图片命名格式 */}
         <div className="space-y-2">
           <div className="space-y-2">
@@ -454,7 +514,7 @@ export function SingleGeneration({
         {form.model === 'gpt-image-1' && (
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">输入图片（可选，支持最多4张）</label>
+              <label className="text-sm font-medium">输入图片（可选）</label>
               <div className="mt-2">
                 <ImageUpload
                   images={form.images || []}
@@ -466,6 +526,7 @@ export function SingleGeneration({
             </div>
 
             {/* 蒙版功能 - 暂时隐藏 */}
+
             {false && (
               <div>
                 <label className="text-sm font-medium">蒙版（mask，可选）</label>

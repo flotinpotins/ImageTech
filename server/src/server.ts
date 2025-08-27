@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import routes from "./routes/tasks.js";
 import tokenRoutes from "./routes/token.js";
 import uploadRoutes from "./routes/upload.js";
@@ -11,6 +12,14 @@ dotenv.config();
 const app = Fastify({ 
   logger: true,
   bodyLimit: 50 * 1024 * 1024 // 50MB 请求体限制
+});
+
+// 注册 multipart 插件，用于处理文件上传
+await app.register(multipart, {
+  attachFieldsToBody: true, // 重新启用自动附加
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB 文件大小限制
+  },
 });
 
 await app.register(cors, {

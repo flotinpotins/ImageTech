@@ -233,6 +233,17 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
   
 
   
+  if (model === "gemini-2.5-flash-image-preview") {
+    const { generateGeminiImage } = await import('./adapters/comfly_gemini');
+    return generateGeminiImage({
+      prompt: payload.prompt,
+      images: payload?.images ?? payload?.params?.images,
+      size: payload?.size ?? payload?.params?.size,
+      n: payload?.n ?? payload?.params?.n,
+      quality: payload?.quality ?? payload?.params?.quality,
+    }, apiKey);
+  }
+
   throw new Error(`UNSUPPORTED_MODEL:${model}`);
 }
 
