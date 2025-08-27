@@ -1,5 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { generateGeminiImage, editGeminiImage } from './adapters/comfly_gemini';
+import { generateGeminiImage, editGeminiImage } from './adapters/comfly_gemini.js';
 
 const tasks = new Map<string, any>();
 
