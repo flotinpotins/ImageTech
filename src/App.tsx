@@ -55,6 +55,7 @@ function App() {
     guidanceScale: 7.5,
     imageFormat: 'png',
     usePromptAsFilename: true,
+    mode: 'text-to-image',
   });
 
   // 单次生成组件内部状态
@@ -200,6 +201,7 @@ function App() {
     images: [],
     guidanceScale: 7.5,
     imageFormat: 'png',
+    mode: 'text-to-image',
     prependPrompt: '',
     appendPrompt: '',
     mask: undefined,
@@ -222,6 +224,7 @@ function App() {
         images: (preset as any).images || [],
         guidanceScale: preset.guidanceScale || 7.5,
         imageFormat: (preset as any).imageFormat || 'png',
+        mode: (preset as any).mode || 'text-to-image',
         prependPrompt: (preset as any).prependPrompt || '',
         appendPrompt: (preset as any).appendPrompt || '',
       });
@@ -252,6 +255,7 @@ function App() {
         images: (preset as any).images || [],
         guidanceScale: preset.guidanceScale || 7.5,
         imageFormat: (preset as any).imageFormat || 'png',
+        mode: (preset as any).mode || 'text-to-image',
       });
       setSingleState(prev => ({
         ...prev,

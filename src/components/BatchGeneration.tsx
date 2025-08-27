@@ -281,7 +281,7 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
     // 优先使用state.model，确保使用用户当前选择的模型
     const currentModel = state.model || defaultForm.model;
     const isImageBasedModel = (
-      task.parsed.model === 'doubao-seededit-3-0-i2i-250628' ||
+      (task.parsed.model as string) === 'doubao-seededit-3-0-i2i-250628' ||
       currentModel === 'gpt-image-1' ||
       (currentModel === 'nano-banana' && task.parsed.mode === 'image-to-image')
     );

@@ -12,6 +12,7 @@ const modelLabels = {
   'jimeng-t2i': '即梦·文生图',
   'gpt-image-1': 'GPT·图像生成/编辑',
   'doubao-seededit-3-0-i2i-250628': '豆包·图像编辑',
+  'nano-banana': 'Nano Banana·图像生成',
 } as const;
 
 const statusLabels = {

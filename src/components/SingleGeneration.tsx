@@ -34,7 +34,7 @@ import {
 
 
 import { useToast } from '@/components/ui/use-toast';
-import type { SingleGenerationForm, HistoryItem, Preset, ImageNamingOption, GenerationMode } from '@/types';
+import type { SingleGenerationForm, HistoryItem, Preset, ImageNamingOption } from '@/types';
 import { IMAGE_EDIT_MODELS } from '@/types';
 
 interface SingleGenerationProps {
