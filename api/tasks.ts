@@ -248,14 +248,22 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
 
   if (model === "nano-banana") {
     const mode = payload?.mode ?? payload?.params?.mode ?? 'text-to-image';
+    const image = payload?.image ?? payload?.params?.image;
     
-    console.log('nano-banana模型处理:', { mode, hasImage: !!(payload?.image ?? payload?.params?.image) });
+    console.log('nano-banana模型处理:', { 
+      mode, 
+      hasImage: !!image,
+      imageLength: image ? image.length : 0,
+      payloadKeys: Object.keys(payload || {}),
+      paramsKeys: Object.keys(payload?.params || {})
+    });
     
     if (mode === 'image-to-image') {
-      const image = payload?.image ?? payload?.params?.image;
       if (!image) {
+        console.error('NANO_BANANA_MISSING_IMAGE - payload:', JSON.stringify(payload, null, 2));
         throw new Error('NANO_BANANA_MISSING_IMAGE');
       }
+      console.log('调用editGeminiImage，图片长度:', image.length);
       return editGeminiImage({
         prompt: payload.prompt,
         image: image,
