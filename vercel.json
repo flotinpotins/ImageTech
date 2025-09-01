@@ -2,7 +2,10 @@
   "version": 2,
   "functions": {
     "api/**/*.ts": {
-      "runtime": "@vercel/node@3.0.21"
+      "runtime": "@vercel/node@3.0.21",
+      "maxDuration": 30,
+      "memory": 1024,
+      "excludeFiles": "**/{node_modules,dist,build,.git,.vite,.cache,coverage,logs,tmp,temp,*.md,*.txt,*.bat,*.ps1,*.png,*.jpg,*.jpeg,*.gif,*.svg,*.ico,*.webp,*.mp4,*.avi,*.mov,*.pdf}/**"
     }
   },
   "env": {
@@ -13,7 +16,7 @@
   },
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "installCommand": "npm install",
+  "installCommand": "npm ci --production=false && node cleanup-for-deploy.cjs",
   "framework": "vite",
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
