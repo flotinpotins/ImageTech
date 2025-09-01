@@ -3,6 +3,7 @@ import { generateGeminiImage, editGeminiImage } from './adapters/comfly_gemini.j
 import formidable from 'formidable';
 import { readFileSync } from 'fs';
 import { Client } from 'pg';
+import { uploadImagesToStorage } from './storage.js';
 
 // 数据库连接
 function createDbClient() {
@@ -39,12 +40,53 @@ export async function saveTask(taskData: any) {
         taskData.status, taskData.seed, taskData.error]
      );
     
-    // 保存图片URLs
+    // 处理图片存储
     if (taskData.outputUrls && taskData.outputUrls.length > 0) {
-      for (const url of taskData.outputUrls) {
+      // 检查是否为Base64数据URL，如果是则上传到对象存储
+      const dataUrls = taskData.outputUrls.filter((url: string) => url.startsWith('data:'));
+      const regularUrls = taskData.outputUrls.filter((url: string) => !url.startsWith('data:'));
+      
+      let finalUrls = [...regularUrls]; // 保留非Base64的URL
+      let storageProvider = 'external'; // 外部URL的默认提供商
+      
+      // 如果有Base64数据，尝试上传到对象存储
+      if (dataUrls.length > 0) {
+        try {
+          console.log(`Uploading ${dataUrls.length} images to object storage for task ${taskData.id}`);
+          const uploadResults = await uploadImagesToStorage(dataUrls, {
+            prefix: `task_${taskData.id}`,
+            metadata: {
+              taskId: taskData.id,
+              model: taskData.meta?.model || 'unknown',
+              prompt: taskData.prompt || '',
+            }
+          });
+          
+          // 使用上传后的URL
+          const uploadedUrls = uploadResults.map(result => result.url);
+          finalUrls.push(...uploadedUrls);
+          
+          // 检查是否成功上传到对象存储
+          const hasObjectStorageUrls = uploadResults.some(result => result.key && result.key.length > 0);
+          storageProvider = hasObjectStorageUrls ? 'r2' : 'database';
+          
+          console.log(`Successfully processed ${uploadResults.length} images, storage provider: ${storageProvider}`);
+        } catch (uploadError) {
+          console.error(`Failed to upload images for task ${taskData.id}:`, uploadError);
+          // 如果上传失败，回退到原始Base64 URL
+          finalUrls.push(...dataUrls);
+          storageProvider = 'database';
+        }
+      }
+      
+      // 保存图片记录到数据库
+      for (let i = 0; i < finalUrls.length; i++) {
+        const url = finalUrls[i];
+        const isDataUrl = url.startsWith('data:');
+        
         // 从URL或参数中推断图片格式
         let format = 'png'; // 默认格式
-        if (url.includes('data:image/')) {
+        if (isDataUrl) {
           const mimeMatch = url.match(/data:image\/(\w+);/);
           if (mimeMatch) {
             format = mimeMatch[1] === 'jpeg' ? 'jpg' : mimeMatch[1];
@@ -58,10 +100,14 @@ export async function saveTask(taskData: any) {
           format = 'png';
         }
         
+        // 确定存储提供商和迁移状态
+        const currentStorageProvider = isDataUrl ? 'database' : storageProvider;
+        const isMigrated = !isDataUrl;
+        
         await client.query(
-          `INSERT INTO images (task_id, url, provider, format, created_at) 
-           VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT DO NOTHING`,
-          [taskData.id, url, taskData.meta?.model || 'unknown', format]
+          `INSERT INTO images (task_id, url, provider, format, storage_provider, is_migrated, created_at) 
+           VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT DO NOTHING`,
+          [taskData.id, url, taskData.meta?.model || 'unknown', format, currentStorageProvider, isMigrated]
         );
       }
     }
