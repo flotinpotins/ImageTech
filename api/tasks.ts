@@ -12,11 +12,41 @@ function createDbClient() {
   });
 }
 
+// 自动清理函数
+async function autoCleanupIfNeeded(client: Client) {
+  try {
+    // 检查数据库大小（通过记录数量估算）
+    const countResult = await client.query('SELECT COUNT(*) as total FROM tasks');
+    const totalTasks = parseInt(countResult.rows[0].total);
+    
+    // 如果任务数量超过10000，触发紧急清理
+    if (totalTasks > 10000) {
+      console.log(`Database has ${totalTasks} tasks, triggering emergency cleanup...`);
+      
+      // 删除7天前的数据
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 7);
+      
+      const deleteResult = await client.query(
+        'DELETE FROM tasks WHERE created_at < $1 AND is_pinned = false',
+        [cutoffDate.toISOString()]
+      );
+      
+      console.log(`Emergency cleanup completed: deleted ${deleteResult.rowCount} old tasks`);
+    }
+  } catch (error) {
+    console.error('Auto cleanup failed:', error);
+  }
+}
+
 // 数据库操作函数
 export async function saveTask(taskData: any) {
   const client = createDbClient();
   try {
     await client.connect();
+    
+    // 执行自动清理检查
+    await autoCleanupIfNeeded(client);
     // 安全序列化参数
     let serializedParams = '{}';
     try {
