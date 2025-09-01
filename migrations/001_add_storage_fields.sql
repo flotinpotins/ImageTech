@@ -14,7 +14,7 @@ CREATE INDEX IF NOT EXISTS idx_images_is_migrated ON images(is_migrated);
 -- 添加约束确保storage_provider的值有效
 ALTER TABLE images 
 ADD CONSTRAINT chk_storage_provider 
-CHECK (storage_provider IN ('database', 'r2', 's3', 'local'));
+CHECK (storage_provider IN ('database', 'r2', 's3', 'local', 'external'));
 
 -- 更新现有记录，将所有现有图片标记为存储在数据库中
 UPDATE images 
@@ -22,7 +22,7 @@ SET storage_provider = 'database', is_migrated = false
 WHERE storage_provider IS NULL;
 
 -- 添加注释
-COMMENT ON COLUMN images.storage_provider IS '存储提供商：database=Base64存储在数据库, r2=Cloudflare R2, s3=AWS S3, local=本地文件系统';
+COMMENT ON COLUMN images.storage_provider IS '存储提供商：database=Base64存储在数据库, r2=Cloudflare R2, s3=AWS S3, local=本地文件系统, external=外部URL';
 COMMENT ON COLUMN images.is_migrated IS '是否已从数据库Base64迁移到对象存储';
 
 -- 创建视图，方便查询未迁移的图片
