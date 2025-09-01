@@ -1,36 +1,121 @@
-// Ignore all node_modules and build artifacts everywhere
+# Node.js dependencies and build artifacts
 **/node_modules
 **/dist
 **/build
+node_modules
+dist
+build
 
-# Keep server source; ignore only its artifacts and secrets
-# (removed: server)
+# Package lock files (regenerated during build)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+server/package-lock.json
+server/yarn.lock
+
+# Server artifacts and secrets
 server/dist
 server/node_modules
 server/.env
 server/.env.*
-server/package-lock.json
 
-# Tooling and caches
+# Development and tooling
 .vite
 **/.cache
+.cache
 .vercel
 .git
 .trae
 .vscode
 .idea
+.next
+.nuxt
+.output
+.turbo
 
-# Logs and OS files
+# Logs and debugging
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-.DS_Store
-Thumbs.db
-
-# Coverage and temp
-coverage
 logs
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Temporary files and caches
+coverage
+.nyc_output
 tmp
 temp
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Test files and documentation
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+__tests__
+tests
+test
+*.md
+README*
+CHANGELOG*
+LICENSE*
+
+# Development scripts and configs
+*.bat
+*.ps1
+*.sh
+check-env.*
+check_*.js
+debug_*.js
+execute-sql.*
+test-*.js
+start-dev.*
+
+# Large media files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.webp
+*.mp4
+*.avi
+*.mov
+*.pdf
+
+# TypeScript and build configs (keep essential ones)
+tsconfig.node.json
+.eslintrc.*
+.prettierrc*
+
+# Environment and config files
+.env.example
+.env.local
+.env.development
+.env.test
+vercel.json
+vite.config.ts
+tailwind.config.js
+postcss.config.js
+
+# Documentation and text files
+*.txt
+*.md
+Untitled-*
+# 添加更多排除项.txt

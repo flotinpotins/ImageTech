@@ -11,12 +11,12 @@ function createDbClient() {
 
 // 清理配置
 const CLEANUP_CONFIG = {
-  // 保留最近7天的数据（紧急清理模式）
-  RETENTION_DAYS: 7,
-  // 每次最多清理2000条记录，加快清理速度
-  BATCH_SIZE: 2000,
-  // 保护机制：保留至少50条最新记录
-  MIN_RECORDS_TO_KEEP: 50
+  // 保留最近30天的数据
+  RETENTION_DAYS: 30,
+  // 每次最多清理1000条记录，避免长时间锁表
+  BATCH_SIZE: 1000,
+  // 保护机制：保留至少100条最新记录
+  MIN_RECORDS_TO_KEEP: 100
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

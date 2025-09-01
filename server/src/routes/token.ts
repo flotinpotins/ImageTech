@@ -7,14 +7,11 @@ export default async function tokenRoutes(app: FastifyInstance) {
       // 从请求头中获取API Key
       const apiKey = req.headers['x-api-key'] as string;
       
-      // 只在开发环境显示调试信息
-      if (process.env.NODE_ENV === 'development') {
-        console.log('=== 本地服务器令牌查询调试信息 ===');
-        console.log('- 请求方法:', req.method);
-        console.log('- 请求URL:', req.url);
-        console.log('- API Key:', apiKey ? `${apiKey.substring(0, 10)}...` : 'undefined');
-        console.log('- TOKEN_API_BASE_URL:', process.env.TOKEN_API_BASE_URL);
-      }
+      console.log('=== 本地服务器令牌查询调试信息 ===');
+      console.log('- 请求方法:', req.method);
+      console.log('- 请求URL:', req.url);
+      console.log('- API Key:', apiKey ? `${apiKey.substring(0, 10)}...` : 'undefined');
+      console.log('- TOKEN_API_BASE_URL:', process.env.TOKEN_API_BASE_URL);
       
       if (!apiKey) {
         console.error('缺少API Key');
@@ -27,11 +24,9 @@ export default async function tokenRoutes(app: FastifyInstance) {
       const baseUrl = process.env.TOKEN_API_BASE_URL || 'https://ai.comfly.chat';
       const apiUrl = `${baseUrl}/v1/token/quota`;
       
-      if (process.env.NODE_ENV === 'development') {
-        console.log('- 基础URL:', baseUrl);
-        console.log('- 完整API URL:', apiUrl);
-        console.log('=== 开始调用外部API ===');
-      }
+      console.log('- 基础URL:', baseUrl);
+      console.log('- 完整API URL:', apiUrl);
+      console.log('=== 开始调用外部API ===');
       
       const response = await fetch(apiUrl, {
         method: 'GET',
@@ -45,9 +40,7 @@ export default async function tokenRoutes(app: FastifyInstance) {
         },
       });
 
-      if (process.env.NODE_ENV === 'development') {
-        console.log('外部API响应状态:', response.status);
-      }
+      console.log('外部API响应状态:', response.status);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -59,9 +52,7 @@ export default async function tokenRoutes(app: FastifyInstance) {
       }
 
       const data = await response.json();
-      if (process.env.NODE_ENV === 'development') {
-        console.log('外部API返回数据:', JSON.stringify(data, null, 2));
-      }
+      console.log('外部API返回数据:', JSON.stringify(data, null, 2));
       return res.status(200).send(data);
       
     } catch (error: any) {

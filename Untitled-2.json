@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "api/**": {
-      "excludeFiles": "{server,dist,node_modules,*.log,.vite}/**"
-    }
-  }
-}
