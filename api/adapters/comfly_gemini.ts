@@ -29,9 +29,30 @@ async function dataToBlob(dataURL: string): Promise<Blob> {
     return response.blob();
   }
   
-  // 如果是dataURL，转换为Blob
-  const response = await fetch(dataURL);
-  return response.blob();
+  // 如果是dataURL，直接转换为Blob
+  try {
+    // 解析 dataURL: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+    const [header, base64Data] = dataURL.split(',');
+    if (!header || !base64Data) {
+      throw new Error('Invalid dataURL format');
+    }
+    
+    // 提取 MIME 类型
+    const mimeMatch = header.match(/data:([^;]+)/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+    
+    // 将 base64 转换为 Uint8Array
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    return new Blob([bytes], { type: mimeType });
+  } catch (error) {
+    console.error('Error converting dataURL to Blob:', error);
+    throw new Error('Failed to convert dataURL to Blob');
+  }
 }
 
 export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: string) {
