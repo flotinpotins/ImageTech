@@ -19,7 +19,6 @@ import {
   createTask, 
   pollTaskStatus, 
   validateForm, 
-  delay,
   generateId,
   openImage,
   createFriendlyErrorMessage,
@@ -133,7 +132,7 @@ export function SingleGeneration({
       setState({ progress: 0 });
       
       // 记录开始时间用于性能监控
-      const startTime = Date.now();
+      // const startTime = Date.now();
       
       // 构建请求
       const request = await buildTaskRequest(form);

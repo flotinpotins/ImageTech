@@ -491,7 +491,7 @@ export async function createTask(
             const blobStartTime = Date.now();
             
             // GPT 支持多图上传
-            imageData.forEach((imageUrl, index) => {
+            imageData.forEach((imageUrl: string, index: number) => {
               const imageBlob = dataURLtoBlob(imageUrl);
               formData.append('image', imageBlob, `image_${index}.png`);
             });
