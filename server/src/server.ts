@@ -10,7 +10,9 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = Fastify({ 
-  logger: true,
+  logger: {
+    level: 'warn' // 只显示警告和错误，减少开发环境的日志噪音
+  },
   bodyLimit: 50 * 1024 * 1024 // 50MB 请求体限制
 });
 
