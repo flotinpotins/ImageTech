@@ -9,7 +9,8 @@
     "DATABASE_URL": "postgresql://neondb_owner:npg_tQK0OX5Scefk@ep-autumn-mode-add07t2a.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require",
     "TOKEN_API_BASE_URL": "https://ai.comfly.chat",
     "PROVIDER_BASE_URL": "https://ai.comfly.chat",
-    "CRON_SECRET": "cleanup-secret-2024"
+    "CRON_SECRET": "cleanup-secret-2024",
+    "MIGRATION_SECRET": "migrate_2025"
   },
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
