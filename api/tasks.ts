@@ -148,7 +148,11 @@ export async function generateJimengT2I(p: T2IParams, apiKey?: string) {
   };
 
   const ctl = new AbortController();
-  const to = setTimeout(() => ctl.abort(), 120_000);
+  // 增加超时时间，特别是对于大尺寸图片生成
+  const timeoutMs = (p.size && (p.size.includes('1536') || p.size === '1024x1536')) ? 300_000 : 180_000;
+  const to = setTimeout(() => ctl.abort(), timeoutMs);
+  
+  console.log(`GPT Image Generation - Size: ${p.size}, Timeout: ${timeoutMs}ms`);
   try {
     const url = `${base}/v1/images/generations`;
     const r = await fetch(url, {
@@ -184,6 +188,16 @@ export async function generateJimengT2I(p: T2IParams, apiKey?: string) {
     
     return { urls, seed: p.seed };
   } catch (err: any) {
+    const requestDuration = Date.now() - requestStartTime;
+    
+    console.error('=== GPT API Request Failed ===');
+    console.error('Error name:', err.name);
+    console.error('Error message:', err.message);
+    console.error('Request duration:', requestDuration + 'ms');
+    console.error('Timeout was set to:', timeoutMs + 'ms');
+    console.error('Size parameter:', p.size);
+    console.error('==============================');
+    
     if (err?.name === "AbortError") {
       throw new Error("PROVIDER_TIMEOUT");
     }
@@ -223,6 +237,15 @@ function getFileExtension(mimeType: string): string {
 }
 
 export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
+  console.log('=== GPT Image Generation Request ===');
+  console.log('Prompt:', p.prompt?.substring(0, 100) + '...');
+  console.log('Size:', p.size);
+  console.log('N:', p.n);
+  console.log('Quality:', p.quality);
+  console.log('Images count:', p.images?.length || 0);
+  console.log('Has mask:', !!p.mask);
+  console.log('=====================================');
+  
   const base = process.env.PROVIDER_BASE_URL!;
   const key = apiKey || process.env.PROVIDER_API_KEY!;
   if (!base || !key) throw new Error("MISSING_PROVIDER_CONFIG");
@@ -230,6 +253,9 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
   const hasImages = p.images && p.images.length > 0;
   const endpoint = hasImages ? '/v1/images/edits' : '/v1/images/generations';
   const url = `${base}${endpoint}`;
+  
+  console.log('Request URL:', url);
+  console.log('Has images:', hasImages);
 
   let body: any;
   let headers: any = {
@@ -271,7 +297,14 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
   }
 
   const ctl = new AbortController();
-  const to = setTimeout(() => ctl.abort(), 120_000);
+  // 增加超时时间，特别是对于大尺寸图片生成
+  const timeoutMs = (p.size && (p.size.includes('1536') || p.size === '1024x1536')) ? 300_000 : 180_000;
+  const to = setTimeout(() => ctl.abort(), timeoutMs);
+  
+  console.log(`GPT Image Generation - Size: ${p.size}, Timeout: ${timeoutMs}ms`);
+  
+  const requestStartTime = Date.now();
+  console.log('Starting GPT API request at:', new Date().toISOString());
   
   try {
     const r = await fetch(url, {
@@ -281,13 +314,23 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
       signal: ctl.signal,
     });
     
+    const requestDuration = Date.now() - requestStartTime;
+    console.log(`GPT API request completed in ${requestDuration}ms`);
+    
     if (!r.ok) {
       const msg = await r.text().catch(() => r.statusText);
+      console.error('=== GPT API Error ===');
+      console.error('Status:', r.status);
+      console.error('Status Text:', r.statusText);
+      console.error('Error Response:', msg);
+      console.error('Request Duration:', requestDuration + 'ms');
+      console.error('====================');
       throw new Error(`PROVIDER_${r.status}:${msg}`);
     }
     
     const j: any = await r.json();
     const data = j?.data || [];
+    console.log('GPT API response data length:', data.length);
     
     if (!Array.isArray(data) || data.length === 0) {
       throw new Error('PROVIDER_EMPTY_RESULTS');
