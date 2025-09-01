@@ -11,7 +11,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: 3002,
     host: true,
     strictPort: true, // 强制使用指定端口，如果被占用则报错
     open: true,

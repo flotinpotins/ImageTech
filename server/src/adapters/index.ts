@@ -15,13 +15,20 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
   }
   
   if (model === "gpt-image-1") {
+    // GPT模型使用单图字段，需要转换为images数组
+    const singleImage = payload?.image ?? payload?.params?.image;
+    const imagesArray = payload?.images ?? payload?.params?.images;
+    const finalImages = singleImage ? [singleImage] : imagesArray;
+    
     return generateGPTImage({
       prompt: payload.prompt,
-      images: payload?.images ?? payload?.params?.images,
+      images: finalImages,
       mask: payload?.mask ?? payload?.params?.mask,
+      model: payload?.model ?? payload?.params?.model ?? "gpt-image-1",
       size: payload?.size ?? payload?.params?.size,
       n: payload?.n ?? payload?.params?.n,
       quality: payload?.quality ?? payload?.params?.quality,
+      response_format: payload?.response_format ?? payload?.params?.response_format,
       imageFormat: payload?.imageFormat ?? payload?.params?.imageFormat,
     }, apiKey);
   }

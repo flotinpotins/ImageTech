@@ -213,10 +213,10 @@ export async function buildTaskRequest(form: SingleGenerationForm): Promise<Crea
       break;
       
     case 'gpt-image-1': {
-      // gpt-image-1 统一通过后端强制 b64_json，但前端也传 b64_json 以对齐现有协议
+      // gpt-image-1模型不支持response_format参数，默认返回适当格式
       params = {
+        model: 'gpt-image-1',
         size: normalizedSize,
-        response_format: 'b64_json',
         // 由后端根据是否有 images 选择 generations 或 edits
         images: images || undefined,
         mask: mask || undefined,
@@ -411,8 +411,11 @@ export async function createTask(
   
   const { maxRetries = defaultRetries, timeoutMs = defaultTimeout, onRetry } = options || {};
   
-  // 检查是否为 nano-banana 图生图任务
-  const isNanoBananaI2I = request.model === 'nano-banana' && request.params?.mode === 'image-to-image' && request.params?.image;
+  // 检查是否需要使用 FormData
+  const needsFormData = (
+    (request.model === 'nano-banana' && request.params?.mode === 'image-to-image' && request.params?.image) ||
+    (request.model === 'gpt-image-1' && request.params?.images && request.params.images.length > 0)
+  );
 
   let lastError: ApiError;
   const taskStartTime = Date.now();
@@ -420,7 +423,7 @@ export async function createTask(
   console.log(`🚀 Task creation started:`, {
     model: request.model,
     mode: request.params?.mode || 'text-to-image',
-    hasImage: !!request.params?.image,
+    hasImage: !!(request.params?.image || request.params?.images),
     timeout: timeoutMs,
     maxRetries,
     timestamp: new Date().toISOString()
@@ -432,52 +435,80 @@ export async function createTask(
       console.log(`⏳ Attempt ${attempt + 1}/${maxRetries + 1} started at ${new Date().toISOString()}`);
       let response: Response;
 
-      if (isNanoBananaI2I) {
-        // --- 使用 FormData 发送图生图请求 ---
+      if (needsFormData) {
+        // --- 使用 FormData 发送请求 ---
         const formDataStartTime = Date.now();
-        console.log('📦 Creating FormData for nano-banana i2i');
+        console.log(`📦 Creating FormData for ${request.model}`);
         const formData = new FormData();
         formData.append('model', request.model);
         formData.append('prompt', request.prompt);
         
-        // 将 params 对象中的每个键值对添加到 formData（除了image）
+        // 将 params 对象中的每个键值对添加到 formData（除了特殊处理的字段）
         if (request.params) {
           Object.entries(request.params).forEach(([key, value]) => {
-            // 图片将单独处理，避免重复添加
-            if (key !== 'image' && value !== undefined) {
+            // 图片相关字段将单独处理，避免重复添加
+            if (!['image', 'images', 'mask'].includes(key) && value !== undefined) {
               formData.append(key, String(value));
             }
           });
         }
-        // 确保 mode 参数被正确设置
-        formData.append('mode', 'image-to-image');
 
-        // 处理图片（支持单图和多图）
-        const imageData = request.params?.image;
-        if (imageData) {
-          const blobStartTime = Date.now();
+        // 根据模型类型处理图片
+        if (request.model === 'nano-banana') {
+          // nano-banana 模型处理
+          formData.append('mode', 'image-to-image');
           
-          if (Array.isArray(imageData)) {
-            // 多图处理
+          const imageData = request.params?.image;
+          if (imageData) {
+            const blobStartTime = Date.now();
+            
+            if (Array.isArray(imageData)) {
+              // 多图处理
+              imageData.forEach((imageUrl, index) => {
+                const imageBlob = dataURLtoBlob(imageUrl);
+                formData.append('images', imageBlob, `upload_${index}.png`);
+              });
+              console.log('🖼️ Multiple images processing completed:', {
+                imageCount: imageData.length,
+                processingTime: Date.now() - blobStartTime + 'ms'
+              });
+            } else {
+              // 单图处理
+              const imageBlob = dataURLtoBlob(imageData);
+              formData.append('images', imageBlob, 'upload.png');
+              console.log('🖼️ Single image processing completed:', {
+                blobSize: imageBlob.size,
+                processingTime: Date.now() - blobStartTime + 'ms'
+              });
+            }
+          } else {
+            throw new Error('Image is required for image-to-image generation.');
+          }
+        } else if (request.model === 'gpt-image-1') {
+          // GPT 模型处理
+          const imageData = request.params?.images;
+          if (imageData && imageData.length > 0) {
+            const blobStartTime = Date.now();
+            
+            // GPT 支持多图上传
             imageData.forEach((imageUrl, index) => {
               const imageBlob = dataURLtoBlob(imageUrl);
-              formData.append('images', imageBlob, `upload_${index}.png`);
+              formData.append('image', imageBlob, `image_${index}.png`);
             });
-            console.log('🖼️ Multiple images processing completed:', {
+            
+            console.log('🖼️ GPT images processing completed:', {
               imageCount: imageData.length,
               processingTime: Date.now() - blobStartTime + 'ms'
             });
+            
+            // 添加 mask 参数（如果有）
+            if (request.params?.mask) {
+              const maskBlob = dataURLtoBlob(request.params.mask);
+              formData.append('mask', maskBlob, 'mask.png');
+            }
           } else {
-            // 单图处理
-            const imageBlob = dataURLtoBlob(imageData);
-            formData.append('images', imageBlob, 'upload.png');
-            console.log('🖼️ Single image processing completed:', {
-              blobSize: imageBlob.size,
-              processingTime: Date.now() - blobStartTime + 'ms'
-            });
+            throw new Error('Images are required for GPT image editing.');
           }
-        } else {
-          throw new Error('Image is required for image-to-image generation.');
         }
 
         const headers: Record<string, string> = {};

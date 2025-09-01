@@ -132,7 +132,7 @@ export function SingleGeneration({
       // 初始化进度
       setState({ progress: 0 });
       
-      // 模拟最少2秒的加载时间
+      // 记录开始时间用于性能监控
       const startTime = Date.now();
       
       // 构建请求
@@ -167,22 +167,15 @@ export function SingleGeneration({
           // 真实API的进度更新会被我们的模拟进度覆盖
         },
         60, // 保持默认最大尝试次数
-        3000, // 增加轮询间隔到3000ms，与批量生成保持一致
+        1000, // 减少轮询间隔到1000ms，提高响应速度
         (progress) => {
           setState({ progress });
         }
       );
       
          
-      // 确保最少2秒的加载时间
-      const elapsed = Date.now() - startTime;
-      if (elapsed < 2000) {
-        await delay(2000 - elapsed);
-      }
-      
       // 最后冲刺到100%
       setState({ progress: 100 });
-      await delay(300); // 让用户看到100%的状态
       
       setState({ result: taskResult });
       

@@ -23,7 +23,7 @@ const CreateSchema = z.object({
       // gpt-image-1 特有
       mask: z.string().optional(),
       n: z.number().optional(),
-      quality: z.enum(["high", "medium", "low"]).optional(),
+      quality: z.enum(["high", "medium", "low", "auto"]).optional(),
       // nano-banana 特有
       mode: z.enum(["text-to-image", "image-to-image"]).optional(),
 
@@ -71,6 +71,7 @@ export default async function routes(app: FastifyInstance) {
         const parts = req.parts();
         const fields: { [key: string]: any } = {};
         const imageBuffers: Buffer[] = [];
+        const maskBuffers: Buffer[] = [];
         let partCount = 0;
 
         for await (const part of parts) {
@@ -83,6 +84,10 @@ export default async function routes(app: FastifyInstance) {
               const buffer = await part.toBuffer();
               imageBuffers.push(buffer);
               console.log(`Received image buffer ${imageBuffers.length}, size: ${buffer.length}`);
+            } else if (part.fieldname === 'mask') {
+              const buffer = await part.toBuffer();
+              maskBuffers.push(buffer);
+              console.log(`Received mask buffer, size: ${buffer.length}`);
             }
           } else if (part.type === 'field') {
             console.log(`Field part: ${part.fieldname} = ${part.value}`);
@@ -97,9 +102,9 @@ export default async function routes(app: FastifyInstance) {
 
         const { model, prompt, ...params } = fields;
 
-        if (model !== 'nano-banana') {
+        if (!['nano-banana', 'gpt-image-1'].includes(model)) {
             console.log('ERROR: Invalid model for multipart:', model);
-            return res.status(400).send({ message: "Multipart is only supported for 'nano-banana' model." });
+            return res.status(400).send({ message: "Multipart is only supported for 'nano-banana' and 'gpt-image-1' models." });
         }
 
         if (!prompt) {
@@ -124,14 +129,35 @@ export default async function routes(app: FastifyInstance) {
           });
           console.log('ImageDataUrls preview:', imageDataUrls[0]?.substring(0, 100) + '...');
           
-          requestPayload = { 
-            prompt, 
-            ...params, 
-            images: imageDataUrls,
-            mode: 'image-to-image',
-            n: params.n || 1,
-            size: params.size || '1024x1024'
-          };
+          if (model === 'gpt-image-1') {
+            // GPT模型使用单独的image和mask字段
+            requestPayload = { 
+              prompt, 
+              ...params, 
+              image: imageDataUrls[0], // GPT只支持单图
+              mode: 'image-to-image',
+              n: params.n || 1,
+              size: params.size || '1024x1024'
+            };
+            
+            // 添加mask（如果有）
+            if (maskBuffers.length > 0) {
+              const maskBase64 = maskBuffers[0].toString('base64');
+              const maskDataUrl = `data:image/png;base64,${maskBase64}`;
+              requestPayload.mask = maskDataUrl;
+              console.log('Added mask for GPT model, length:', maskDataUrl.length);
+            }
+          } else {
+            // nano-banana模型使用images数组
+            requestPayload = { 
+              prompt, 
+              ...params, 
+              images: imageDataUrls,
+              mode: 'image-to-image',
+              n: params.n || 1,
+              size: params.size || '1024x1024'
+            };
+          }
         } else {
           // 文生图模式 - 不需要图片
           console.log('No images provided - text-to-image mode');
@@ -148,7 +174,8 @@ export default async function routes(app: FastifyInstance) {
           mode: requestPayload.mode,
           n: requestPayload.n,
           size: requestPayload.size,
-          imagesCount: requestPayload.images.length
+          imagesCount: requestPayload.images?.length || (requestPayload.image ? 1 : 0),
+          hasMask: !!requestPayload.mask
         });
         
         const result = await dispatchGenerate(model, requestPayload, apiKey);
@@ -186,8 +213,10 @@ export default async function routes(app: FastifyInstance) {
     // --- 处理 application/json 请求 ---
     const body = req.body || {};
     const imageLen = typeof (body as any).image === 'string' ? (body as any).image.length : 0;
+    const imagesLen = Array.isArray((body as any).params?.images) ? (body as any).params.images.length : 0;
     console.log('JSON Request body keys:', Object.keys(body));
     console.log('Image provided:', !!(body as any).image, 'length:', imageLen);
+    console.log('Images provided:', imagesLen > 0, 'count:', imagesLen);
     console.log('==================');
     
     // 首先尝试Tool Calling格式

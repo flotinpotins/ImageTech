@@ -381,8 +381,8 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
             error: intermediateResult.error 
           });
         },
-        30, // 减少轮询次数
-        3000 // 增加轮询间隔
+        60, // 恢复默认轮询次数
+        1000 // 减少轮询间隔，提高响应速度
       );
       
       console.log(`Final result for task ${task.id}:`, {
