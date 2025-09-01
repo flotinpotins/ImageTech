@@ -472,16 +472,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           
           console.log('Parsed body.params:', body.params);
           
-          // Handle uploaded image file
+          // Handle uploaded image files - support both 'image' and 'images' field names
+          const imageFiles = [];
+          
+          // Check for 'images' field (multiple files)
+          if (files.images) {
+            const imagesArray = Array.isArray(files.images) ? files.images : [files.images];
+            imageFiles.push(...imagesArray);
+          }
+          
+          // Check for 'image' field (single file) - for backward compatibility
           if (files.image) {
-            const imageFile = Array.isArray(files.image) ? files.image[0] : files.image;
-            if (imageFile && imageFile.filepath) {
-              // Convert uploaded file to data URL
-              const mimeType = imageFile.mimetype || 'image/png';
-              const dataURL = fileToDataURL(imageFile.filepath, mimeType);
-              body.params.image = dataURL;
-              console.log('Image converted to data URL, size:', dataURL.length);
+            const imageArray = Array.isArray(files.image) ? files.image : [files.image];
+            imageFiles.push(...imageArray);
+          }
+          
+          if (imageFiles.length > 0) {
+            console.log(`Processing ${imageFiles.length} uploaded image(s)`);
+            const imageDataUrls = imageFiles.map((imageFile, index) => {
+              if (imageFile && imageFile.filepath) {
+                const mimeType = imageFile.mimetype || 'image/png';
+                const dataURL = fileToDataURL(imageFile.filepath, mimeType);
+                console.log(`Image ${index + 1} converted to data URL, size:`, dataURL.length);
+                return dataURL;
+              }
+              return null;
+            }).filter(Boolean);
+            
+            // Store images in the same format as backend server
+            if (imageDataUrls.length === 1) {
+              // Single image - store as both 'image' and 'images' for compatibility
+              body.params.image = imageDataUrls[0];
+              body.params.images = imageDataUrls;
+            } else if (imageDataUrls.length > 1) {
+              // Multiple images - store as 'images' array and first image as 'image'
+              body.params.images = imageDataUrls;
+              body.params.image = imageDataUrls[0];
             }
+            
+            console.log('Images processed:', {
+              imageCount: imageDataUrls.length,
+              hasImage: !!body.params.image,
+              hasImages: !!body.params.images
+            });
           }
         } catch (parseError) {
           console.error('Error parsing multipart form:', parseError);
