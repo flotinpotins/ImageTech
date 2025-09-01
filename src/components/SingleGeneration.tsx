@@ -409,10 +409,10 @@ export function SingleGeneration({
               <ImageUpload
                 images={form.images || []}
                 onChange={(images) => updateForm({ images })}
-                maxImages={1}
+                maxImages={5}
               />
             </div>
-            <p className="text-xs text-muted-foreground mt-1">请上传一张图片作为编辑的基础图像</p>
+            <p className="text-xs text-muted-foreground mt-1">支持上传多张图片作为参考（最多5张）</p>
           </div>
         )}
 

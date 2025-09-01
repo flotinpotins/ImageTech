@@ -70,7 +70,7 @@ export default async function routes(app: FastifyInstance) {
       try {
         const parts = req.parts();
         const fields: { [key: string]: any } = {};
-        let imageBuffer: Buffer | null = null;
+        const imageBuffers: Buffer[] = [];
         let partCount = 0;
 
         for await (const part of parts) {
@@ -79,9 +79,10 @@ export default async function routes(app: FastifyInstance) {
           
           if (part.type === 'file') {
             console.log(`File part details: fieldname=${part.fieldname}, filename=${part.filename}, mimetype=${part.mimetype}`);
-            if (part.fieldname === 'image') {
-              imageBuffer = await part.toBuffer();
-              console.log(`Received image buffer, size: ${imageBuffer.length}`);
+            if (part.fieldname === 'image' || part.fieldname === 'images') {
+              const buffer = await part.toBuffer();
+              imageBuffers.push(buffer);
+              console.log(`Received image buffer ${imageBuffers.length}, size: ${buffer.length}`);
             }
           } else if (part.type === 'field') {
             console.log(`Field part: ${part.fieldname} = ${part.value}`);
@@ -90,13 +91,8 @@ export default async function routes(app: FastifyInstance) {
         }
 
         console.log(`Total parts processed: ${partCount}`);
-        console.log(`ImageBuffer exists: ${!!imageBuffer}`);
+        console.log(`Image buffers count: ${imageBuffers.length}`);
         
-        if (!imageBuffer) {
-          console.log('ERROR: No image buffer found in multipart request');
-          return res.status(400).send({ message: "Image file is required for multipart request." });
-        }
-
         console.log('Received fields:', fields);
 
         const { model, prompt, ...params } = fields;
@@ -111,32 +107,48 @@ export default async function routes(app: FastifyInstance) {
             return res.status(400).send({ message: "Prompt is required." });
         }
 
-        // 确保 mode 参数正确设置
-        if (!params.mode) {
-          params.mode = 'image-to-image';
+        // 根据是否有图片来确定模式
+        const hasImages = imageBuffers.length > 0;
+        const mode = params.mode || (hasImages ? 'image-to-image' : 'text-to-image');
+        
+        let requestPayload;
+        
+        if (hasImages) {
+          // 图生图模式 - 将 Buffer 数组转换为 base64 字符串数组
+          console.log('Converting imageBuffers to base64, buffer count:', imageBuffers.length);
+          const imageDataUrls = imageBuffers.map((buffer, index) => {
+            const imageBase64 = buffer.toString('base64');
+            const imageDataUrl = `data:image/png;base64,${imageBase64}`;
+            console.log(`Generated imageDataUrl ${index + 1} length:`, imageDataUrl.length);
+            return imageDataUrl;
+          });
+          console.log('ImageDataUrls preview:', imageDataUrls[0]?.substring(0, 100) + '...');
+          
+          requestPayload = { 
+            prompt, 
+            ...params, 
+            images: imageDataUrls,
+            mode: 'image-to-image',
+            n: params.n || 1,
+            size: params.size || '1024x1024'
+          };
+        } else {
+          // 文生图模式 - 不需要图片
+          console.log('No images provided - text-to-image mode');
+          requestPayload = { 
+            prompt, 
+            ...params, 
+            mode: 'text-to-image',
+            n: params.n || 1,
+            size: params.size || '1024x1024'
+          };
         }
-        
-        // 将 Buffer 转换为 base64 字符串，因为 editGeminiImage 期望 DataURL
-        console.log('Converting imageBuffer to base64, buffer size:', imageBuffer.length);
-        const imageBase64 = imageBuffer.toString('base64');
-        const imageDataUrl = `data:image/png;base64,${imageBase64}`;
-        console.log('Generated imageDataUrl length:', imageDataUrl.length);
-        console.log('ImageDataUrl preview:', imageDataUrl.substring(0, 100) + '...');
-        
-        const requestPayload = { 
-          prompt, 
-          ...params, 
-          image: imageDataUrl,
-          mode: 'image-to-image',
-          n: params.n || 1,
-          size: params.size || '1024x1024'
-        };
         console.log('Calling dispatchGenerate with payload:', {
           prompt: requestPayload.prompt,
           mode: requestPayload.mode,
           n: requestPayload.n,
           size: requestPayload.size,
-          imageLength: requestPayload.image.length
+          imagesCount: requestPayload.images.length
         });
         
         const result = await dispatchGenerate(model, requestPayload, apiKey);
@@ -212,7 +224,9 @@ export default async function routes(app: FastifyInstance) {
         
         res.send({ id, seed });
       } catch (e: any) {
-        res.status(502).send(e?.message || "provider error");
+        console.error('Tool calling task creation error:', e.message);
+        // 保持原始错误信息，让前端能够正确处理
+        res.status(502).send({ message: e?.message || "provider error" });
       }
       return;
     }
@@ -259,7 +273,9 @@ export default async function routes(app: FastifyInstance) {
       
       res.send({ id, seed });
     } catch (e: any) {
-      res.status(502).send(e?.message || "provider error");
+      console.error('Task creation error:', e.message);
+      // 保持原始错误信息，让前端能够正确处理
+      res.status(502).send({ message: e?.message || "provider error" });
     }
   });
 

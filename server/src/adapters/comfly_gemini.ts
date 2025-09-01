@@ -62,7 +62,7 @@ export type GeminiImageParams = {
 
 export type GeminiImageEditParams = {
   prompt: string;
-  image: string;      // dataURL 格式的图片或图片URL
+  image?: string | string[];      // dataURL 格式的图片或图片URL，支持多图参考或不带参考图
   size?: string;      // "1024x1024"|"1536x1024"|"1024x1536"|"auto"
   n?: number;         // 1-10, 默认 1
   quality?: string;   // "high"|"medium"|"low"
@@ -311,24 +311,7 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
 
   try {
     
-    // 添加图片文件
-    const imageProcessStartTime = Date.now();
-    console.log('🖼️ Processing image for FormData...');
-    console.log('Original image data type:', typeof p.image);
-    console.log('Original image data length:', p.image ? p.image.length : 0);
-    console.log('Image data preview:', p.image ? p.image.substring(0, 100) + '...' : 'null');
-    
-    const { buffer: imageBuffer, mimeType } = await dataToBuffer(p.image);
-    const imageProcessDuration = Date.now() - imageProcessStartTime;
-    console.log(`⏱️ Image processing completed in ${imageProcessDuration}ms`);
-    console.log('Image Buffer created, size:', imageBuffer.length, 'mimeType:', mimeType);
-    
-    // 验证Buffer内容
-    if (imageBuffer.length === 0) {
-      throw new Error('Generated image buffer is empty');
-    }
-    
-    // 使用原生 FormData 但确保 Blob 正确创建
+    // 使用原生 FormData 构建请求
     const formData = new FormData();
     formData.append('model', 'nano-banana');
     formData.append('prompt', p.prompt);
@@ -345,39 +328,77 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
       formData.append('quality', p.quality);
     }
     
-    // 确保创建正确的 Blob 对象
-    const imageBlob = new Blob([new Uint8Array(imageBuffer)], { type: mimeType });
-    console.log('Created Blob:', {
-      type: imageBlob.type,
-      size: imageBlob.size,
-      bufferSize: imageBuffer.length,
-      mimeType: mimeType
-    });
-    
-    // 验证 Blob 是否正确创建
-    if (imageBlob.size === 0) {
-      throw new Error('Failed to create valid Blob from buffer');
+    // 处理图片参数 - 根据API文档，image字段是required的，但支持多图或不带参考图
+    const imageProcessStartTime = Date.now();
+    if (p.image && p.image.length > 0) {
+      console.log('🖼️ Processing images for FormData...');
+      
+      // 将图片参数标准化为数组
+      const images = Array.isArray(p.image) ? p.image : [p.image];
+      console.log(`Processing ${images.length} image(s)`);
+      
+      // 处理每张图片
+      for (let i = 0; i < images.length; i++) {
+        const imageData = images[i];
+        console.log(`Processing image ${i + 1}/${images.length}:`);
+        console.log('- Image data type:', typeof imageData);
+        console.log('- Image data length:', imageData ? imageData.length : 0);
+        console.log('- Image data preview:', imageData ? imageData.substring(0, 100) + '...' : 'null');
+        
+        const { buffer: imageBuffer, mimeType } = await dataToBuffer(imageData);
+        console.log(`- Buffer created, size: ${imageBuffer.length}, mimeType: ${mimeType}`);
+        
+        // 验证Buffer内容
+        if (imageBuffer.length === 0) {
+          throw new Error(`Generated image buffer ${i + 1} is empty`);
+        }
+        
+        // 创建 Blob 对象
+        const imageBlob = new Blob([new Uint8Array(imageBuffer)], { type: mimeType });
+        console.log(`- Created Blob ${i + 1}:`, {
+          type: imageBlob.type,
+          size: imageBlob.size,
+          bufferSize: imageBuffer.length,
+          mimeType: mimeType
+        });
+        
+        // 验证 Blob 是否正确创建
+        if (imageBlob.size === 0) {
+          throw new Error(`Failed to create valid Blob ${i + 1} from buffer`);
+        }
+        
+        // 验证图像数据的前几个字节（PNG/JPEG魔数）
+        const firstBytes = Array.from(imageBuffer.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+        console.log(`- Image ${i + 1} buffer first 8 bytes (hex):`, firstBytes);
+        
+        // PNG文件应该以 89 50 4E 47 开头，JPEG文件应该以 FF D8 开头
+        const isPNG = imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50 && imageBuffer[2] === 0x4E && imageBuffer[3] === 0x47;
+        const isJPEG = imageBuffer[0] === 0xFF && imageBuffer[1] === 0xD8;
+        console.log(`- Image ${i + 1} format validation:`, { isPNG, isJPEG, detectedFormat: isPNG ? 'PNG' : isJPEG ? 'JPEG' : 'Unknown' });
+        
+        if (!isPNG && !isJPEG) {
+          console.warn(`⚠️ Warning: Image ${i + 1} data does not appear to be valid PNG or JPEG format`);
+        }
+        
+        // 根据API文档，多图时使用多个image字段
+        formData.append('image', imageBlob, `upload_${i + 1}.png`);
+      }
+      
+      const imageProcessDuration = Date.now() - imageProcessStartTime;
+      console.log(`⏱️ All images processing completed in ${imageProcessDuration}ms`);
+    } else {
+      console.log('🖼️ No images provided - text-to-image mode');
+      // 根据API文档，即使是文生图模式，image字段也是required的
+      // 创建一个1x1像素的透明PNG作为占位符
+      const placeholderPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+      const { buffer: placeholderBuffer, mimeType } = await dataToBuffer(placeholderPng);
+      const placeholderBlob = new Blob([new Uint8Array(placeholderBuffer)], { type: mimeType });
+      formData.append('image', placeholderBlob, 'placeholder.png');
+      console.log('🖼️ Added placeholder image for text-to-image mode');
     }
-    
-    // 验证图像数据的前几个字节（PNG/JPEG魔数）
-    const firstBytes = Array.from(imageBuffer.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ');
-    console.log('Image buffer first 8 bytes (hex):', firstBytes);
-    
-    // PNG文件应该以 89 50 4E 47 开头，JPEG文件应该以 FF D8 开头
-    const isPNG = imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50 && imageBuffer[2] === 0x4E && imageBuffer[3] === 0x47;
-    const isJPEG = imageBuffer[0] === 0xFF && imageBuffer[1] === 0xD8;
-    console.log('Image format validation:', { isPNG, isJPEG, detectedFormat: isPNG ? 'PNG' : isJPEG ? 'JPEG' : 'Unknown' });
-    
-    if (!isPNG && !isJPEG) {
-      console.warn('⚠️ Warning: Image data does not appear to be valid PNG or JPEG format');
-    }
-    
-    formData.append('image', imageBlob, 'upload.png');
     
     const formDataCreateDuration = Date.now() - imageProcessStartTime;
     console.log('📦 FormData created with native FormData');
-    console.log('Image blob size:', imageBlob.size);
-    console.log('Image content type:', imageBlob.type);
     console.log(`⏱️ FormData creation completed in ${formDataCreateDuration}ms`);
 
     const headers = {

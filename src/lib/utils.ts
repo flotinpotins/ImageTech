@@ -242,7 +242,8 @@ export async function buildTaskRequest(form: SingleGenerationForm): Promise<Crea
       
       // 只有在图生图模式下才传递图片
       if (mode === 'image-to-image' && images && images.length > 0) {
-        requestData.image = images[0];
+        // 支持多图参考：如果只有一张图片，传递字符串；多张图片传递数组
+        requestData.image = images.length === 1 ? images[0] : images;
       }
       
       params = requestData;
@@ -326,9 +327,19 @@ export function createFriendlyErrorMessage(error: any): string {
   
   // 检查特定的错误类型
   if (error.message) {
+    // 处理Gemini API的特定错误
+    if (error.message.includes('GEMINI_EDIT_502')) {
+      return 'nano-banana模型服务暂时不可用，请稍后重试或尝试其他模型';
+    }
     if (error.message.includes('GEMINI_EDIT_408') || error.message.includes('408_AFTER_') || 
         error.message.includes('GEMINI_EDIT_TIMEOUT') || error.message.includes('TIMEOUT_AFTER_')) {
       return 'nano-banana模型服务暂时繁忙，已尝试多次重试仍失败，请稍后重试或尝试其他模型';
+    }
+    if (error.message.includes('GEMINI_EDIT_') && error.message.includes('502')) {
+      return 'nano-banana模型服务暂时不可用，请稍后重试或尝试其他模型';
+    }
+    if (error.message.includes('bad response status code 502')) {
+      return 'AI服务暂时不可用，请稍后重试或尝试其他模型';
     }
     if (error.message.includes('fetch')) {
       return '网络连接失败，请检查网络连接';
@@ -441,17 +452,30 @@ export async function createTask(
         // 确保 mode 参数被正确设置
         formData.append('mode', 'image-to-image');
 
-        // 处理图片
-        const imageUrl = request.params?.image;
-        if (imageUrl) {
+        // 处理图片（支持单图和多图）
+        const imageData = request.params?.image;
+        if (imageData) {
           const blobStartTime = Date.now();
-          const imageBlob = dataURLtoBlob(imageUrl);
-          const blobEndTime = Date.now();
-          formData.append('image', imageBlob, 'upload.png'); // 'image' 是后端期望的字段名
-          console.log('🖼️ Image processing completed:', {
-            blobSize: imageBlob.size,
-            processingTime: blobEndTime - blobStartTime + 'ms'
-          });
+          
+          if (Array.isArray(imageData)) {
+            // 多图处理
+            imageData.forEach((imageUrl, index) => {
+              const imageBlob = dataURLtoBlob(imageUrl);
+              formData.append('images', imageBlob, `upload_${index}.png`);
+            });
+            console.log('🖼️ Multiple images processing completed:', {
+              imageCount: imageData.length,
+              processingTime: Date.now() - blobStartTime + 'ms'
+            });
+          } else {
+            // 单图处理
+            const imageBlob = dataURLtoBlob(imageData);
+            formData.append('images', imageBlob, 'upload.png');
+            console.log('🖼️ Single image processing completed:', {
+              blobSize: imageBlob.size,
+              processingTime: Date.now() - blobStartTime + 'ms'
+            });
+          }
         } else {
           throw new Error('Image is required for image-to-image generation.');
         }
@@ -496,13 +520,26 @@ export async function createTask(
       
       if (!response.ok) {
         let detail = '';
+        let errorMessage = '';
         try {
-          detail = await response.text();
+          const errorText = await response.text();
+          detail = errorText;
+          
+          // 尝试解析JSON错误响应
+          try {
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.message) {
+              errorMessage = errorJson.message;
+            }
+          } catch {
+            // 如果不是JSON，使用原始文本
+            errorMessage = errorText;
+          }
         } catch {
           // 忽略解析错误，使用默认错误信息
         }
         
-        const error = new Error(`HTTP ${response.status}: ${response.statusText}${detail ? ` - ${detail}` : ''}`) as ApiError;
+        const error = new Error(errorMessage || `HTTP ${response.status}: ${response.statusText}${detail ? ` - ${detail}` : ''}`) as ApiError;
         error.status = response.status;
         error.isRetryable = isRetryableError(error);
         

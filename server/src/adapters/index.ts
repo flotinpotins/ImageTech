@@ -41,33 +41,38 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
     // nano-banana 模型支持文生图和图生图两种模式
     const mode = payload?.mode ?? 'text-to-image';
     const image = payload?.image;
+    const images = payload?.images;
     
     console.log('=== NANO-BANANA DEBUG ===');
     console.log('Mode:', mode);
     console.log('Image provided:', !!image);
+    console.log('Images provided:', !!images);
     console.log('Image length:', image ? image.length : 0);
+    console.log('Images count:', images ? images.length : 0);
     console.log('Payload keys:', Object.keys(payload));
     // Remove verbose full payload logging to avoid flooding logs with base64 data
     // console.log('Full payload:', JSON.stringify(payload, null, 2));
     console.log('========================');
     
+    // 根据API文档，nano-banana图生图使用/v1/images/edits接口，文生图使用/v1/images/generations接口
     if (mode === 'image-to-image') {
-      // 图生图模式
-      if (!image) {
-        throw new Error('NANO_BANANA_MISSING_IMAGE: nano-banana model requires an image for editing in image-to-image mode');
+      // 图生图模式 - 使用/v1/images/edits接口，editGeminiImage函数
+      const finalImage = images?.[0] || image;
+      
+      if (!finalImage) {
+        throw new Error('NANO_BANANA_MISSING_IMAGE: nano-banana model requires at least one image for editing in image-to-image mode');
       }
       
       const urls = await editGeminiImage({
         prompt: payload.prompt,
-        image: image,
+        image: finalImage,
         size: payload?.size ?? payload?.params?.size,
         n: payload?.n ?? payload?.params?.n,
         quality: payload?.quality ?? payload?.params?.quality,
-        response_format: payload?.response_format ?? payload?.params?.response_format ?? 'url',
       }, apiKey);
       return { urls, seed: undefined };
     } else {
-      // 文生图模式
+      // 文生图模式 - 使用正确的/v1/images/generations接口
       const urls = await generateGeminiImage({
         prompt: payload.prompt,
         size: payload?.size ?? payload?.params?.size,
