@@ -33,7 +33,7 @@ await app.register(tokenRoutes);
 await app.register(uploadRoutes);
 await app.register(healthRoutes);
 
-const port = Number(process.env.PORT || 3001);
+const port = Number(process.env.PORT || 3003);
 
 app.listen({ port, host: "0.0.0.0" }).then((address) => {
   app.log.info(`BFF listening at ${address}`);

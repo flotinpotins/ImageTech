@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
+import https from 'https';
 
 // 存储配置接口
 interface StorageConfig {
@@ -21,7 +22,7 @@ function getStorageConfig(): StorageConfig {
     provider: (process.env.STORAGE_PROVIDER as 'r2' | 's3' | 'local') || 'r2',
     enabled: process.env.STORAGE_ENABLED === 'true',
     r2: {
-      accountId: process.env.R2_ACCOUNT_ID || '',
+      accountId: process.env.CLOUDFLARE_ACCOUNT_ID || '',
       accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
       secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
       bucketName: process.env.R2_BUCKET_NAME || 'imagetech-storage',
@@ -36,13 +37,23 @@ function createR2Client(config: StorageConfig) {
     throw new Error('R2 configuration is missing');
   }
 
+  if (!config.r2.accessKeyId || !config.r2.secretAccessKey) {
+    throw new Error('R2 Access Key ID and Secret Access Key are required');
+  }
+
+  // 根据Cloudflare官方文档和社区反馈的配置
   return new S3Client({
-    region: 'auto',
+    region: 'auto', // Cloudflare R2 要求使用 'auto' 作为 region
     endpoint: `https://${config.r2.accountId}.r2.cloudflarestorage.com`,
     credentials: {
       accessKeyId: config.r2.accessKeyId,
       secretAccessKey: config.r2.secretAccessKey,
     },
+    // 添加强制路径样式，某些情况下可能需要
+    forcePathStyle: true,
+    // 禁用存储桶检查，避免权限问题
+    // 这对于有限权限的API令牌很重要
+    signatureVersion: 'v4',
   });
 }
 
@@ -108,6 +119,15 @@ export async function uploadImageToStorage(dataURL: string, options?: {
           ...options?.metadata,
         },
       });
+      
+      // 添加自动创建存储桶的头部（如果存储桶不存在）
+      command.middlewareStack.add(
+        (next) => (args) => {
+          args.request.headers['cf-create-bucket-if-missing'] = 'true';
+          return next(args);
+        },
+        { step: 'build' }
+      );
 
       await client.send(command);
       

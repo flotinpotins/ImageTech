@@ -130,14 +130,15 @@ export default async function routes(app: FastifyInstance) {
           console.log('ImageDataUrls preview:', imageDataUrls[0]?.substring(0, 100) + '...');
           
           if (model === 'gpt-image-1') {
-            // GPT模型使用单独的image和mask字段
+            // GPT模型使用images数组字段（与API文档一致）
             requestPayload = { 
               prompt, 
               ...params, 
-              image: imageDataUrls[0], // GPT只支持单图
+              images: imageDataUrls, // 传递完整的images数组
               mode: 'image-to-image',
               n: params.n || 1,
-              size: params.size || '1024x1024'
+              size: params.size || '1024x1024',
+              model: 'gpt-image-1' // 明确指定模型
             };
             
             // 添加mask（如果有）
