@@ -1,5 +1,5 @@
 // 使用内置的 fetch 和 FormData
-import { uploadImageToStorage } from '../storage';
+import { uploadImageToStorage } from '../storage.js';
 
 // 辅助函数：将dataURL转换为Buffer
 function dataURLToBuffer(dataURL: string): { buffer: Buffer; mimeType: string } {

@@ -1,4 +1,4 @@
-import { uploadImageToStorage } from '../storage';
+import { uploadImageToStorage } from '../storage.js';
 
 export type T2IParams = {
   prompt: string;

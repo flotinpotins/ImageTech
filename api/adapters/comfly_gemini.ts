@@ -4,7 +4,7 @@
  * 根据官方文档，使用 /v1/images/generations 接口
  */
 
-import { uploadImageToStorage } from '../storage';
+import { uploadImageToStorage } from '../storage.js';
 
 export type GeminiImageParams = {
   prompt: string;
