@@ -1,7 +1,5 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
-import https from 'https';
 
 // 存储配置接口
 interface StorageConfig {
@@ -51,9 +49,6 @@ function createR2Client(config: StorageConfig) {
     },
     // 添加强制路径样式，某些情况下可能需要
     forcePathStyle: true,
-    // 禁用存储桶检查，避免权限问题
-    // 这对于有限权限的API令牌很重要
-    signatureVersion: 'v4',
   });
 }
 
@@ -122,8 +117,10 @@ export async function uploadImageToStorage(dataURL: string, options?: {
       
       // 添加自动创建存储桶的头部（如果存储桶不存在）
       command.middlewareStack.add(
-        (next) => (args) => {
-          args.request.headers['cf-create-bucket-if-missing'] = 'true';
+        (next) => (args: any) => {
+          if (args.request && args.request.headers) {
+            args.request.headers['cf-create-bucket-if-missing'] = 'true';
+          }
           return next(args);
         },
         { step: 'build' }
