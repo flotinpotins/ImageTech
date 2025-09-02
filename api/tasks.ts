@@ -57,8 +57,7 @@ export async function saveTask(taskData: any) {
             prefix: `task_${taskData.id}`,
             metadata: {
               taskId: taskData.id,
-              model: taskData.meta?.model || 'unknown',
-              prompt: taskData.prompt || '',
+              model: taskData.meta?.model || 'unknown'
             }
           });
           
