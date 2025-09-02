@@ -1,3 +1,5 @@
+import { uploadImageToStorage } from '../storage';
+
 export type T2IParams = {
   prompt: string;
   size?: string;
@@ -59,7 +61,28 @@ export async function generateJimengT2I(p: T2IParams, apiKey?: string) {
       throw new Error('PROVIDER_NO_VALID_IMAGES');
     }
     
-    return { urls, seed: p.seed };
+    // 将图片上传到R2存储
+    const uploadedUrls = [];
+    for (const dataURL of urls) {
+      try {
+        // 上传到R2存储
+        const uploadResult = await uploadImageToStorage(dataURL, {
+          prefix: 'jimeng-img',
+          metadata: {
+            model: 'doubao-seedream-3-0-t2i-250415',
+            prompt: p.prompt.substring(0, 100), // 截取前100字符作为元数据
+            seed: p.seed?.toString() || 'random',
+          }
+        });
+        uploadedUrls.push(uploadResult.url);
+      } catch (error) {
+        console.error('Failed to upload image to storage:', error);
+        // 如果上传失败，使用原始dataURL作为fallback
+        uploadedUrls.push(dataURL);
+      }
+    }
+    
+    return { urls: uploadedUrls, seed: p.seed };
   } catch (err: any) {
     if (err?.name === "AbortError") {
       throw new Error("PROVIDER_TIMEOUT");

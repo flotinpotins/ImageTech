@@ -1,4 +1,23 @@
 // 使用内置的 fetch 和 FormData
+import { uploadImageToStorage } from '../storage';
+
+// 辅助函数：将dataURL转换为Buffer
+function dataURLToBuffer(dataURL: string): { buffer: Buffer; mimeType: string } {
+  const matches = dataURL.match(/^data:([^;]+);base64,(.+)$/);
+  if (!matches) {
+    throw new Error('Invalid data URL format');
+  }
+  const mimeType = matches[1];
+  const base64Data = matches[2];
+  const buffer = Buffer.from(base64Data, 'base64');
+  return { buffer, mimeType };
+}
+
+// 辅助函数：将Buffer转换为dataURL
+function bufferToDataURL(buffer: Buffer, mimeType: string): string {
+  const base64Data = buffer.toString('base64');
+  return `data:${mimeType};base64,${base64Data}`;
+}
 
 export type GPTImageParams = {
   prompt: string;
@@ -10,19 +29,7 @@ export type GPTImageParams = {
   imageFormat?: string; // "png"|"jpg", 默认 "png"
 };
 
-// 将 dataURL 转为 Buffer
-function dataURLToBuffer(dataURL: string): { buffer: Buffer; mimeType: string } {
-  const matches = dataURL.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.*)$/);
-  if (!matches) {
-    throw new Error('Invalid dataURL format');
-  }
-  
-  const mimeType = matches[1];
-  const base64Data = matches[2];
-  const buffer = Buffer.from(base64Data, 'base64');
-  
-  return { buffer, mimeType };
-}
+
 
 // 获取文件扩展名
 function getFileExtension(mimeType: string): string {
@@ -165,7 +172,44 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
       throw new Error('PROVIDER_NO_VALID_IMAGES');
     }
     
-    return { urls, seed: undefined };
+    // 将图片上传到R2存储
+     const uploadedUrls = [];
+     for (const url of urls) {
+       try {
+         let dataURL: string;
+         
+         if (url.startsWith('data:')) {
+           // 已经是dataURL格式
+           dataURL = url;
+         } else {
+           // 处理URL，下载图片并转换为dataURL
+           const imageResponse = await fetch(url);
+           if (!imageResponse.ok) {
+             throw new Error(`Failed to download image: ${imageResponse.statusText}`);
+           }
+           const arrayBuffer = await imageResponse.arrayBuffer();
+           const buffer = Buffer.from(arrayBuffer);
+           const contentType = imageResponse.headers.get('content-type') || mimeType;
+           dataURL = bufferToDataURL(buffer, contentType);
+         }
+         
+         // 上传到R2存储
+         const uploadResult = await uploadImageToStorage(dataURL, {
+           prefix: 'gpt-img',
+           metadata: {
+             model: 'gpt-image-1',
+             prompt: p.prompt.substring(0, 100), // 截取前100字符作为元数据
+           }
+         });
+         uploadedUrls.push(uploadResult.url);
+       } catch (error) {
+         console.error('Failed to upload image to storage:', error);
+         // 如果上传失败，使用原始URL作为fallback
+         uploadedUrls.push(url);
+       }
+     }
+    
+    return { urls: uploadedUrls, seed: undefined };
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw new Error('PROVIDER_TIMEOUT');

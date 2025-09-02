@@ -4,6 +4,8 @@
  * 根据官方文档，使用 /v1/images/generations 接口
  */
 
+import { uploadImageToStorage } from '../storage';
+
 export type GeminiImageParams = {
   prompt: string;
   images?: string[];  // dataURL 数组
@@ -144,7 +146,45 @@ export async function generateGeminiImage(p: GeminiImageParams | any, apiKey?: s
       throw new Error('GEMINI_NO_IMAGES_IN_RESPONSE');
     }
 
-    return { urls: imageUrls, seed: undefined };
+    // 将图片上传到R2存储
+    const uploadedUrls = [];
+    for (const imageUrl of imageUrls) {
+      try {
+        let dataURL: string;
+        
+        if (imageUrl.startsWith('data:')) {
+          // 已经是dataURL格式
+          dataURL = imageUrl;
+        } else {
+          // 处理URL，下载图片并转换为dataURL
+          const imageResponse = await fetch(imageUrl);
+          if (!imageResponse.ok) {
+            throw new Error(`Failed to download image: ${imageResponse.statusText}`);
+          }
+          const arrayBuffer = await imageResponse.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const contentType = imageResponse.headers.get('content-type') || 'image/png';
+          const base64Data = buffer.toString('base64');
+          dataURL = `data:${contentType};base64,${base64Data}`;
+        }
+        
+        // 上传到R2存储
+        const uploadResult = await uploadImageToStorage(dataURL, {
+          prefix: 'gemini-img',
+          metadata: {
+            model: 'nano-banana',
+            prompt: p.prompt.substring(0, 100), // 截取前100字符作为元数据
+          }
+        });
+        uploadedUrls.push(uploadResult.url);
+      } catch (error) {
+        console.error('Failed to upload image to storage:', error);
+        // 如果上传失败，使用原始URL作为fallback
+        uploadedUrls.push(imageUrl);
+      }
+    }
+
+    return { urls: uploadedUrls, seed: undefined };
 
   } catch (err: any) {
     if (err?.name === 'AbortError') {
@@ -260,7 +300,46 @@ export async function editGeminiImage(p: GeminiImageEditParams, apiKey?: string)
         throw new Error('GEMINI_EDIT_NO_IMAGES_IN_RESPONSE');
       }
 
-      return { urls: imageUrls, seed: undefined };
+      // 将图片上传到R2存储
+      const uploadedUrls = [];
+      for (const imageUrl of imageUrls) {
+        try {
+          let dataURL: string;
+          
+          if (imageUrl.startsWith('data:')) {
+            // 已经是dataURL格式
+            dataURL = imageUrl;
+          } else {
+            // 处理URL，下载图片并转换为dataURL
+            const imageResponse = await fetch(imageUrl);
+            if (!imageResponse.ok) {
+              throw new Error(`Failed to download image: ${imageResponse.statusText}`);
+            }
+            const arrayBuffer = await imageResponse.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const contentType = imageResponse.headers.get('content-type') || 'image/png';
+            const base64Data = buffer.toString('base64');
+            dataURL = `data:${contentType};base64,${base64Data}`;
+          }
+          
+          // 上传到R2存储
+          const uploadResult = await uploadImageToStorage(dataURL, {
+            prefix: 'gemini-edit-img',
+            metadata: {
+              model: 'nano-banana',
+              prompt: p.prompt.substring(0, 100), // 截取前100字符作为元数据
+              operation: 'edit',
+            }
+          });
+          uploadedUrls.push(uploadResult.url);
+        } catch (error) {
+          console.error('Failed to upload image to storage:', error);
+          // 如果上传失败，使用原始URL作为fallback
+          uploadedUrls.push(imageUrl);
+        }
+      }
+
+      return { urls: uploadedUrls, seed: undefined };
 
     } catch (err: any) {
       if (err?.name === 'AbortError') {
