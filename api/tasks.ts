@@ -135,6 +135,23 @@ export async function getTask(taskId: string) {
       'SELECT url FROM images WHERE task_id = $1 ORDER BY created_at',
       [taskId]
     );
+
+    // 将历史上保存为 S3 API 域名的 R2 URL 动态映射到公开域名，避免 403 无法预览
+    const publicBase = process.env.R2_PUBLIC_URL || '';
+    const normalizeUrl = (url: string) => {
+      try {
+        if (!url || url.startsWith('data:')) return url;
+        if (!publicBase) return url;
+        if (url.startsWith(publicBase)) return url;
+        const m = url.match(/^https?:\/\/[^.]+\.[^.]+\.r2\.cloudflarestorage\.com\/(.+)$/);
+        if (m && m[1]) {
+          return `${publicBase.replace(/\/$/, '')}/${m[1]}`;
+        }
+        return url;
+      } catch {
+        return url;
+      }
+    };
     
     // 安全解析JSON参数
     let parsedParams = {};
@@ -156,7 +173,7 @@ export async function getTask(taskId: string) {
     return {
       id: task.id,
       status: task.status,
-      outputUrls: imagesResult.rows.map(row => row.url),
+      outputUrls: imagesResult.rows.map(row => normalizeUrl(row.url)),
       seed: task.seed,
       error: task.error,
       meta: parsedParams,

@@ -20,7 +20,7 @@ function getStorageConfig(): StorageConfig {
     provider: (process.env.STORAGE_PROVIDER as 'r2' | 's3' | 'local') || 'r2',
     enabled: process.env.STORAGE_ENABLED === 'true',
     r2: {
-      accountId: process.env.CLOUDFLARE_ACCOUNT_ID || '',
+      accountId: (process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || ''),
       accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
       secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
       bucketName: process.env.R2_BUCKET_NAME || 'imagetech-storage',
@@ -78,6 +78,43 @@ function generateFileName(extension: string, prefix: string = 'img'): string {
   return `${prefix}_${timestamp}_${randomId}.${extension}`;
 }
 
+// 元数据清洗，确保HTTP头合法且长度可控
+function sanitizeMetadata(input?: Record<string, unknown>): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!input) return result;
+
+  const MAX_VALUE_LEN = 1024; // 保守限制，避免超长头部
+  const sanitizeKey = (key: string) =>
+    key.toLowerCase().replace(/[^a-z0-9-_]/g, '-').slice(0, 128);
+
+  for (const [rawKey, rawVal] of Object.entries(input)) {
+    if (rawVal === undefined || rawVal === null) continue;
+
+    const key = sanitizeKey(rawKey);
+    if (!key) continue;
+
+    let value = String(rawVal);
+
+    // 如果包含非 ASCII 或控制字符，则使用 base64 编码并加前缀标记
+    const containsIllegal = /[\r\n]/.test(value) || /[^\x20-\x7E]/.test(value);
+    if (containsIllegal) {
+      value = `b64:${Buffer.from(value, 'utf8').toString('base64')}`;
+    } else {
+      // 规范空白字符，避免奇怪的分隔符
+      value = value.replace(/\s+/g, ' ').trim();
+    }
+
+    // 长度裁剪
+    if (value.length > MAX_VALUE_LEN) {
+      value = value.slice(0, MAX_VALUE_LEN);
+    }
+
+    result[key] = value;
+  }
+
+  return result;
+}
+
 // 上传图片到对象存储
 export async function uploadImageToStorage(dataURL: string, options?: {
   prefix?: string;
@@ -101,6 +138,13 @@ export async function uploadImageToStorage(dataURL: string, options?: {
     
     if (config.provider === 'r2') {
       const client = createR2Client(config);
+
+      const rawMetadata: Record<string, unknown> = {
+        uploadedAt: new Date().toISOString(),
+        originalSize: buffer.length.toString(),
+        ...options?.metadata,
+      };
+      const safeMetadata = sanitizeMetadata(rawMetadata);
       
       const command = new PutObjectCommand({
         Bucket: config.r2!.bucketName,
@@ -108,11 +152,7 @@ export async function uploadImageToStorage(dataURL: string, options?: {
         Body: buffer,
         ContentType: mimeType,
         ContentLength: buffer.length,
-        Metadata: {
-          uploadedAt: new Date().toISOString(),
-          originalSize: buffer.length.toString(),
-          ...options?.metadata,
-        },
+        Metadata: safeMetadata,
       });
       
       // 添加自动创建存储桶的头部（如果存储桶不存在）
@@ -129,6 +169,9 @@ export async function uploadImageToStorage(dataURL: string, options?: {
       await client.send(command);
       
       // 构建公共访问URL
+      if (!config.r2!.publicUrl) {
+        console.warn('[storage] R2_PUBLIC_URL is not configured. Falling back to S3 API endpoint which is typically NOT publicly readable. Configure R2_PUBLIC_URL to your bucket\'s public domain (e.g. https://pub-xxxxx.r2.dev) so images can render on the web.');
+      }
       const publicUrl = config.r2!.publicUrl 
         ? `${config.r2!.publicUrl}/${fileName}`
         : `https://${config.r2!.bucketName}.${config.r2!.accountId}.r2.cloudflarestorage.com/${fileName}`;
