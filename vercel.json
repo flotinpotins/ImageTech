@@ -10,12 +10,7 @@
     "TOKEN_API_BASE_URL": "https://ai.comfly.chat",
     "PROVIDER_BASE_URL": "https://ai.comfly.chat",
     "CRON_SECRET": "cleanup-secret-2024",
-    "MIGRATION_SECRET": "migrate_2025",
-    "CLOUDFLARE_R2_ACCOUNT_ID": "@cloudflare_r2_account_id",
-    "CLOUDFLARE_R2_ACCESS_KEY_ID": "@cloudflare_r2_access_key_id",
-    "CLOUDFLARE_R2_SECRET_ACCESS_KEY": "@cloudflare_r2_secret_access_key",
-    "CLOUDFLARE_R2_BUCKET_NAME": "@cloudflare_r2_bucket_name",
-    "CLOUDFLARE_R2_PUBLIC_URL": "@cloudflare_r2_public_url"
+    "MIGRATION_SECRET": "migrate_2025"
   },
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
