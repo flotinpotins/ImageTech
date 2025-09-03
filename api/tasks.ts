@@ -1,5 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { generateGeminiImage, editGeminiImage } from './adapters/comfly_gemini.js';
+import { generateGeminiImage } from './adapters/comfly_gemini.js';
 import formidable from 'formidable';
 import { readFileSync } from 'fs';
 import { Client } from 'pg';

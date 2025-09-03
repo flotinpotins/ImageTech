@@ -332,8 +332,9 @@ export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
         console.error(`GPT Attempt ${attempt} failed:`, error);
         
         // 如果是网络错误或超时，可以重试
-        if (error.name === 'AbortError' || error.message.includes('fetch')) {
-          lastError = error;
+        const errorObj = error as Error;
+        if (errorObj.name === 'AbortError' || errorObj.message?.includes('fetch')) {
+          lastError = errorObj;
           if (attempt === maxRetries) {
             throw new Error(`GPT_REQUEST_FAILED_AFTER_RETRIES: ${lastError.message}`);
           }

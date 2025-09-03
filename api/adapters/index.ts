@@ -1,6 +1,6 @@
 import { generateJimengT2I } from "./jimeng_t2i";
 import { generateGPTImage } from "./gpt_image_1";
-import { generateGeminiImage, editGeminiImage } from './comfly_gemini.js';
+import { generateGeminiImage } from './comfly_gemini.js';
 import { generateNanoBanana, editNanoBanana } from './nano_banana.js'
 
 export async function dispatchGenerate(model: string, payload: any, apiKey?: string) {
