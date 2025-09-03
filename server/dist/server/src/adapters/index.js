@@ -1,6 +1,7 @@
 import { generateJimengT2I } from "./jimeng_t2i.js";
 import { generateGPTImage } from "./gpt_image_1.js";
-import { generateGeminiImage, editGeminiImage } from "./comfly_gemini.js";
+import { generateGeminiImage } from "./comfly_gemini.js";
+import { generateNanoBanana, editNanoBanana } from "./nano_banana.js";
 export async function dispatchGenerate(model, payload, apiKey) {
     if (model === "jimeng-t2i") {
         return generateJimengT2I({
@@ -13,13 +14,19 @@ export async function dispatchGenerate(model, payload, apiKey) {
         }, apiKey);
     }
     if (model === "gpt-image-1") {
+        // GPT模型使用单图字段，需要转换为images数组
+        const singleImage = payload?.image ?? payload?.params?.image;
+        const imagesArray = payload?.images ?? payload?.params?.images;
+        const finalImages = singleImage ? [singleImage] : imagesArray;
         return generateGPTImage({
             prompt: payload.prompt,
-            images: payload?.images ?? payload?.params?.images,
+            images: finalImages,
             mask: payload?.mask ?? payload?.params?.mask,
+            model: payload?.model ?? payload?.params?.model ?? "gpt-image-1",
             size: payload?.size ?? payload?.params?.size,
             n: payload?.n ?? payload?.params?.n,
             quality: payload?.quality ?? payload?.params?.quality,
+            response_format: payload?.response_format ?? payload?.params?.response_format,
             imageFormat: payload?.imageFormat ?? payload?.params?.imageFormat,
         }, apiKey);
     }
@@ -34,41 +41,29 @@ export async function dispatchGenerate(model, payload, apiKey) {
         return { urls, seed: undefined };
     }
     if (model === "nano-banana") {
-        // nano-banana 模型支持文生图和图生图两种模式
+        // 使用 nano-banana 适配器，支持文生图与图生图
         const mode = payload?.mode ?? 'text-to-image';
-        const image = payload?.image;
-        console.log('=== NANO-BANANA DEBUG ===');
-        console.log('Mode:', mode);
-        console.log('Image provided:', !!image);
-        console.log('Image length:', image ? image.length : 0);
-        console.log('Payload keys:', Object.keys(payload));
-        // Remove verbose full payload logging to avoid flooding logs with base64 data
-        // console.log('Full payload:', JSON.stringify(payload, null, 2));
-        console.log('========================');
         if (mode === 'image-to-image') {
-            // 图生图模式
-            if (!image) {
+            const finalImage = payload?.images?.[0] || payload?.image;
+            if (!finalImage) {
                 throw new Error('NANO_BANANA_MISSING_IMAGE: nano-banana model requires an image for editing in image-to-image mode');
             }
-            const urls = await editGeminiImage({
+            const { urls, seed } = await editNanoBanana({
                 prompt: payload.prompt,
-                image: image,
-                size: payload?.size ?? payload?.params?.size,
-                n: payload?.n ?? payload?.params?.n,
-                quality: payload?.quality ?? payload?.params?.quality,
-                response_format: payload?.response_format ?? payload?.params?.response_format ?? 'url',
+                image: finalImage,
+                n: payload?.n,
+                seed: payload?.seed,
             }, apiKey);
-            return { urls, seed: undefined };
+            return { urls, seed };
         }
         else {
-            // 文生图模式
-            const urls = await generateGeminiImage({
+            const { urls, seed } = await generateNanoBanana({
                 prompt: payload.prompt,
-                size: payload?.size ?? payload?.params?.size,
-                n: payload?.n ?? payload?.params?.n,
-                quality: payload?.quality ?? payload?.params?.quality,
+                images: payload?.images,
+                n: payload?.n,
+                seed: payload?.seed,
             }, apiKey);
-            return { urls, seed: undefined };
+            return { urls, seed };
         }
     }
     throw new Error(`UNSUPPORTED_MODEL:${model}`);

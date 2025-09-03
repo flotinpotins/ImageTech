@@ -1,6 +1,6 @@
 // 并发控制变量
 let activeJimengRequests = 0;
-const MAX_CONCURRENT_JIMENG_REQUESTS = 3;
+const MAX_CONCURRENT_JIMENG_REQUESTS = 5; // 支持全速模式的并发数
 // 等待可用槽位
 async function waitForJimengSlot() {
     while (activeJimengRequests >= MAX_CONCURRENT_JIMENG_REQUESTS) {

@@ -8,7 +8,7 @@ export type ModelType =
 export type GenerationMode = 'text-to-image' | 'image-to-image';
 
 // 支持图生图的模型
-export const IMAGE_EDIT_MODELS: ModelType[] = ['nano-banana'];
+export const IMAGE_EDIT_MODELS: ModelType[] = ['nano-banana', 'gpt-image-1'];
 
 // 任务状态
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed';

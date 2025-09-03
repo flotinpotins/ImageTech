@@ -20,7 +20,7 @@ const CreateSchema = z.object({
         // gpt-image-1 特有
         mask: z.string().optional(),
         n: z.number().optional(),
-        quality: z.enum(["high", "medium", "low"]).optional(),
+        quality: z.enum(["high", "medium", "low", "auto"]).optional(),
         // nano-banana 特有
         mode: z.enum(["text-to-image", "image-to-image"]).optional(),
     })
@@ -62,16 +62,23 @@ export default async function routes(app) {
             try {
                 const parts = req.parts();
                 const fields = {};
-                let imageBuffer = null;
+                const imageBuffers = [];
+                const maskBuffers = [];
                 let partCount = 0;
                 for await (const part of parts) {
                     partCount++;
                     console.log(`Processing part ${partCount}: type=${part.type}, fieldname=${part.fieldname}`);
                     if (part.type === 'file') {
                         console.log(`File part details: fieldname=${part.fieldname}, filename=${part.filename}, mimetype=${part.mimetype}`);
-                        if (part.fieldname === 'image') {
-                            imageBuffer = await part.toBuffer();
-                            console.log(`Received image buffer, size: ${imageBuffer.length}`);
+                        if (part.fieldname === 'image' || part.fieldname === 'images') {
+                            const buffer = await part.toBuffer();
+                            imageBuffers.push(buffer);
+                            console.log(`Received image buffer ${imageBuffers.length}, size: ${buffer.length}`);
+                        }
+                        else if (part.fieldname === 'mask') {
+                            const buffer = await part.toBuffer();
+                            maskBuffers.push(buffer);
+                            console.log(`Received mask buffer, size: ${buffer.length}`);
                         }
                     }
                     else if (part.type === 'field') {
@@ -80,45 +87,80 @@ export default async function routes(app) {
                     }
                 }
                 console.log(`Total parts processed: ${partCount}`);
-                console.log(`ImageBuffer exists: ${!!imageBuffer}`);
-                if (!imageBuffer) {
-                    console.log('ERROR: No image buffer found in multipart request');
-                    return res.status(400).send({ message: "Image file is required for multipart request." });
-                }
+                console.log(`Image buffers count: ${imageBuffers.length}`);
                 console.log('Received fields:', fields);
                 const { model, prompt, ...params } = fields;
-                if (model !== 'nano-banana') {
+                if (!['nano-banana', 'gpt-image-1'].includes(model)) {
                     console.log('ERROR: Invalid model for multipart:', model);
-                    return res.status(400).send({ message: "Multipart is only supported for 'nano-banana' model." });
+                    return res.status(400).send({ message: "Multipart is only supported for 'nano-banana' and 'gpt-image-1' models." });
                 }
                 if (!prompt) {
                     console.log('ERROR: Missing prompt in multipart request');
                     return res.status(400).send({ message: "Prompt is required." });
                 }
-                // 确保 mode 参数正确设置
-                if (!params.mode) {
-                    params.mode = 'image-to-image';
+                // 根据是否有图片来确定模式
+                const hasImages = imageBuffers.length > 0;
+                const mode = params.mode || (hasImages ? 'image-to-image' : 'text-to-image');
+                let requestPayload;
+                if (hasImages) {
+                    // 图生图模式 - 将 Buffer 数组转换为 base64 字符串数组
+                    console.log('Converting imageBuffers to base64, buffer count:', imageBuffers.length);
+                    const imageDataUrls = imageBuffers.map((buffer, index) => {
+                        const imageBase64 = buffer.toString('base64');
+                        const imageDataUrl = `data:image/png;base64,${imageBase64}`;
+                        console.log(`Generated imageDataUrl ${index + 1} length:`, imageDataUrl.length);
+                        return imageDataUrl;
+                    });
+                    console.log('ImageDataUrls preview:', imageDataUrls[0]?.substring(0, 100) + '...');
+                    if (model === 'gpt-image-1') {
+                        // GPT模型使用images数组字段（与API文档一致）
+                        requestPayload = {
+                            prompt,
+                            ...params,
+                            images: imageDataUrls, // 传递完整的images数组
+                            mode: 'image-to-image',
+                            n: params.n || 1,
+                            size: params.size || '1024x1024',
+                            model: 'gpt-image-1' // 明确指定模型
+                        };
+                        // 添加mask（如果有）
+                        if (maskBuffers.length > 0) {
+                            const maskBase64 = maskBuffers[0].toString('base64');
+                            const maskDataUrl = `data:image/png;base64,${maskBase64}`;
+                            requestPayload.mask = maskDataUrl;
+                            console.log('Added mask for GPT model, length:', maskDataUrl.length);
+                        }
+                    }
+                    else {
+                        // nano-banana模型使用images数组
+                        requestPayload = {
+                            prompt,
+                            ...params,
+                            images: imageDataUrls,
+                            mode: 'image-to-image',
+                            n: params.n || 1,
+                            size: params.size || '1024x1024'
+                        };
+                    }
                 }
-                // 将 Buffer 转换为 base64 字符串，因为 editGeminiImage 期望 DataURL
-                console.log('Converting imageBuffer to base64, buffer size:', imageBuffer.length);
-                const imageBase64 = imageBuffer.toString('base64');
-                const imageDataUrl = `data:image/png;base64,${imageBase64}`;
-                console.log('Generated imageDataUrl length:', imageDataUrl.length);
-                console.log('ImageDataUrl preview:', imageDataUrl.substring(0, 100) + '...');
-                const requestPayload = {
-                    prompt,
-                    ...params,
-                    image: imageDataUrl,
-                    mode: 'image-to-image',
-                    n: params.n || 1,
-                    size: params.size || '1024x1024'
-                };
+                else {
+                    // 文生图模式 - 不需要图片
+                    console.log('No images provided - text-to-image mode');
+                    requestPayload = {
+                        prompt,
+                        ...params,
+                        mode: 'text-to-image',
+                        n: params.n || 1,
+                        size: params.size || '1024x1024'
+                    };
+                }
                 console.log('Calling dispatchGenerate with payload:', {
                     prompt: requestPayload.prompt,
                     mode: requestPayload.mode,
                     n: requestPayload.n,
                     size: requestPayload.size,
-                    imageLength: requestPayload.image.length
+                    imagesCount: (Array.isArray(requestPayload?.images) ? requestPayload.images.length : (requestPayload?.image ? 1 : 0)),
+                    hasMask: !!requestPayload?.mask
                 });
                 const result = await dispatchGenerate(model, requestPayload, apiKey);
                 const id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -152,8 +194,10 @@ export default async function routes(app) {
         // --- 处理 application/json 请求 ---
         const body = req.body || {};
         const imageLen = typeof body.image === 'string' ? body.image.length : 0;
+        const imagesLen = Array.isArray(body.params?.images) ? body.params.images.length : 0;
         console.log('JSON Request body keys:', Object.keys(body));
         console.log('Image provided:', !!body.image, 'length:', imageLen);
+        console.log('Images provided:', imagesLen > 0, 'count:', imagesLen);
         console.log('==================');
         // 首先尝试Tool Calling格式
         const toolCallingParse = ToolCallingSchema.safeParse(req.body);
@@ -186,7 +230,9 @@ export default async function routes(app) {
                 res.send({ id, seed });
             }
             catch (e) {
-                res.status(502).send(e?.message || "provider error");
+                console.error('Tool calling task creation error:', e.message);
+                // 保持原始错误信息，让前端能够正确处理
+                res.status(502).send({ message: e?.message || "provider error" });
             }
             return;
         }
@@ -230,7 +276,9 @@ export default async function routes(app) {
             res.send({ id, seed });
         }
         catch (e) {
-            res.status(502).send(e?.message || "provider error");
+            console.error('Task creation error:', e.message);
+            // 保持原始错误信息，让前端能够正确处理
+            res.status(502).send({ message: e?.message || "provider error" });
         }
     });
     app.get("/api/tasks/:id", async (req, res) => {

@@ -4,6 +4,8 @@ import formidable from 'formidable';
 import { readFileSync } from 'fs';
 import { Client } from 'pg';
 import { uploadImagesToStorage } from './storage.js';
+import { generateNanoBanana, editNanoBanana } from './adapters/nano_banana.js';
+import { generateGPTImage as generateGPTImageAdapter } from './adapters/gpt_image_1.js';
 
 // 数据库连接
 function createDbClient() {
@@ -255,135 +257,7 @@ export async function generateJimengT2I(p: T2IParams, apiKey?: string) {
   }
 }
 
-// GPT Image Types and Functions
-export type GPTImageParams = {
-  prompt: string;
-  images?: string[];
-  mask?: string;
-  size?: string;
-  n?: number;
-  quality?: string;
-  imageFormat?: string;
-};
-
-function dataURLToBuffer(dataURL: string): { buffer: Buffer; mimeType: string } {
-  const matches = dataURL.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.*)$/);
-  if (!matches) {
-    throw new Error('Invalid dataURL format');
-  }
-  
-  const mimeType = matches[1];
-  const base64Data = matches[2];
-  const buffer = Buffer.from(base64Data, 'base64');
-  
-  return { buffer, mimeType };
-}
-
-function getFileExtension(mimeType: string): string {
-  const ext = mimeType.split('/')[1];
-  return ext === 'jpeg' ? 'jpg' : ext;
-}
-
-export async function generateGPTImage(p: GPTImageParams, apiKey?: string) {
-  const base = process.env.PROVIDER_BASE_URL!;
-  const key = apiKey || process.env.PROVIDER_API_KEY!;
-  if (!base || !key) throw new Error("MISSING_PROVIDER_CONFIG");
-
-  const hasImages = p.images && p.images.length > 0;
-  const endpoint = hasImages ? '/v1/images/edits' : '/v1/images/generations';
-  const url = `${base}${endpoint}`;
-
-  let body: any;
-  let headers: any = {
-    'Authorization': `Bearer ${key}`,
-  };
-
-  if (hasImages) {
-    const formData = new FormData();
-    formData.append('prompt', p.prompt);
-    
-    if (p.images && p.images[0]) {
-      const { buffer, mimeType } = dataURLToBuffer(p.images[0]);
-      const ext = getFileExtension(mimeType);
-      const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
-      formData.append('image', blob, `image.${ext}`);
-    }
-    
-    if (p.mask) {
-      const { buffer, mimeType } = dataURLToBuffer(p.mask);
-      const ext = getFileExtension(mimeType);
-      const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
-      formData.append('mask', blob, `mask.${ext}`);
-    }
-    
-    if (p.size && p.size !== 'auto') formData.append('size', p.size);
-    if (p.n) formData.append('n', p.n.toString());
-    // 注意：quality 在图像编辑模式下不被支持，不传递以避免提供商错误
-    
-    body = formData;
-  } else {
-    headers['Content-Type'] = 'application/json';
-    body = JSON.stringify({
-      model: 'gpt-image-1',
-      prompt: p.prompt,
-      size: p.size || '1024x1024',
-      n: p.n || 1,
-      quality: p.quality || 'high'
-    });
-  }
-
-  const ctl = new AbortController();
-  const to = setTimeout(() => ctl.abort(), 120_000);
-  
-  try {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers,
-      body,
-      signal: ctl.signal,
-    });
-    
-    if (!r.ok) {
-      const msg = await r.text().catch(() => r.statusText);
-      throw new Error(`PROVIDER_${r.status}:${msg}`);
-    }
-    
-    const j: any = await r.json();
-    const data = j?.data || [];
-    
-    if (!Array.isArray(data) || data.length === 0) {
-      throw new Error('PROVIDER_EMPTY_RESULTS');
-    }
-    
-    // 处理不同格式的响应数据
-    const imageFormat = p.imageFormat || 'png';
-    const mimeType = imageFormat === 'jpg' ? 'image/jpeg' : 'image/png';
-    const urls = data
-      .map((item: any) => {
-        // 支持 b64_json 和 url 两种格式
-        if (item.b64_json) {
-          return `data:${mimeType};base64,${item.b64_json}`;
-        } else if (item.url) {
-          return item.url;
-        }
-        return null;
-      })
-      .filter(Boolean);
-    
-    if (urls.length === 0) {
-      throw new Error('PROVIDER_NO_VALID_IMAGES');
-    }
-    
-    return { urls, seed: undefined };
-  } catch (err: any) {
-    if (err?.name === "AbortError") {
-      throw new Error("PROVIDER_TIMEOUT");
-    }
-    throw err;
-  } finally {
-    clearTimeout(to);
-  }
-}
+// GPT Image functions are now imported from adapters/gpt_image_1.js
 
 // Dispatch Function
 export async function dispatchGenerate(model: string, payload: any, apiKey?: string) {
@@ -399,7 +273,7 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
   }
   
   if (model === "gpt-image-1") {
-    return generateGPTImage({
+    return generateGPTImageAdapter({
       prompt: payload.prompt,
       images: payload?.images ?? payload?.params?.images,
       mask: payload?.mask ?? payload?.params?.mask,
@@ -409,8 +283,6 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
       imageFormat: payload?.imageFormat ?? payload?.params?.imageFormat,
     }, apiKey);
   }
-  
-
   
   if (model === "gemini-2.5-flash-image-preview") {
     return generateGeminiImage({
@@ -425,36 +297,34 @@ export async function dispatchGenerate(model: string, payload: any, apiKey?: str
   if (model === "nano-banana") {
     const mode = payload?.mode ?? payload?.params?.mode ?? 'text-to-image';
     const image = payload?.image ?? payload?.params?.image;
-    
-    console.log('nano-banana模型处理:', { 
-      mode, 
+    const images = payload?.images ?? payload?.params?.images;
+    const n = payload?.n ?? payload?.params?.n;
+    const seed = payload?.seed ?? payload?.params?.seed;
+
+    console.log('nano-banana模型处理(tasks.ts):', {
+      mode,
       hasImage: !!image,
-      imageLength: image ? image.length : 0,
-      payloadKeys: Object.keys(payload || {}),
-      paramsKeys: Object.keys(payload?.params || {})
+      imagesLen: Array.isArray(images) ? images.length : 0,
     });
-    
+
     if (mode === 'image-to-image') {
-      if (!image) {
+      if (!image && (!images || images.length === 0)) {
         console.error('NANO_BANANA_MISSING_IMAGE - payload:', JSON.stringify(payload, null, 2));
         throw new Error('NANO_BANANA_MISSING_IMAGE');
       }
-      console.log('调用editGeminiImage，图片长度:', image.length);
-      return editGeminiImage({
+      return editNanoBanana({
         prompt: payload.prompt,
-        image: image,
-        size: payload?.size ?? payload?.params?.size,
-        n: payload?.n ?? payload?.params?.n,
-        quality: payload?.quality ?? payload?.params?.quality,
-        response_format: payload?.response_format ?? payload?.params?.response_format,
+        image,
+        images,
+        n,
+        seed,
       }, apiKey);
     } else {
-      return generateGeminiImage({
+      return generateNanoBanana({
         prompt: payload.prompt,
-        size: payload?.size ?? payload?.params?.size,
-        n: payload?.n ?? payload?.params?.n,
-        quality: payload?.quality ?? payload?.params?.quality,
-        response_format: payload?.response_format ?? payload?.params?.response_format,
+        images,
+        n,
+        seed,
       }, apiKey);
     }
   }

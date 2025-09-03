@@ -3,6 +3,7 @@
  * 使用 OpenAI Dall-e 格式调用 Gemini 2.5 Flash Image Preview 模型
  * 根据官方文档，使用 /v1/images/generations 接口
  */
+import { uploadImageToStorage } from '../storage.js';
 // 将 dataURL 转换为 Blob
 async function dataToBlob(dataURL) {
     if (dataURL.startsWith('http')) {
@@ -10,9 +11,28 @@ async function dataToBlob(dataURL) {
         const response = await fetch(dataURL);
         return response.blob();
     }
-    // 如果是dataURL，转换为Blob
-    const response = await fetch(dataURL);
-    return response.blob();
+    // 如果是dataURL，直接转换为Blob
+    try {
+        // 解析 dataURL: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+        const [header, base64Data] = dataURL.split(',');
+        if (!header || !base64Data) {
+            throw new Error('Invalid dataURL format');
+        }
+        // 提取 MIME 类型
+        const mimeMatch = header.match(/data:([^;]+)/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+        // 将 base64 转换为 Uint8Array
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return new Blob([bytes], { type: mimeType });
+    }
+    catch (error) {
+        console.error('Error converting dataURL to Blob:', error);
+        throw new Error('Failed to convert dataURL to Blob');
+    }
 }
 export async function generateGeminiImage(p, apiKey) {
     console.log('=== Gemini Image Generation Request (Dall-e Format) ===');
@@ -91,7 +111,44 @@ export async function generateGeminiImage(p, apiKey) {
         if (imageUrls.length === 0) {
             throw new Error('GEMINI_NO_IMAGES_IN_RESPONSE');
         }
-        return { urls: imageUrls, seed: undefined };
+        // 将图片上传到R2存储
+        const uploadedUrls = [];
+        for (const imageUrl of imageUrls) {
+            try {
+                let dataURL;
+                if (imageUrl.startsWith('data:')) {
+                    // 已经是dataURL格式
+                    dataURL = imageUrl;
+                }
+                else {
+                    // 处理URL，下载图片并转换为dataURL
+                    const imageResponse = await fetch(imageUrl);
+                    if (!imageResponse.ok) {
+                        throw new Error(`Failed to download image: ${imageResponse.statusText}`);
+                    }
+                    const arrayBuffer = await imageResponse.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+                    const contentType = imageResponse.headers.get('content-type') || 'image/png';
+                    const base64Data = buffer.toString('base64');
+                    dataURL = `data:${contentType};base64,${base64Data}`;
+                }
+                // 上传到R2存储
+                const uploadResult = await uploadImageToStorage(dataURL, {
+                    prefix: 'gemini-img',
+                    metadata: {
+                        model: 'nano-banana',
+                        prompt: p.prompt.substring(0, 100), // 截取前100字符作为元数据
+                    }
+                });
+                uploadedUrls.push(uploadResult.url);
+            }
+            catch (error) {
+                console.error('Failed to upload image to storage:', error);
+                // 如果上传失败，使用原始URL作为fallback
+                uploadedUrls.push(imageUrl);
+            }
+        }
+        return { urls: uploadedUrls, seed: undefined };
     }
     catch (err) {
         if (err?.name === 'AbortError') {
@@ -192,7 +249,45 @@ export async function editGeminiImage(p, apiKey) {
             if (imageUrls.length === 0) {
                 throw new Error('GEMINI_EDIT_NO_IMAGES_IN_RESPONSE');
             }
-            return { urls: imageUrls, seed: undefined };
+            // 将图片上传到R2存储
+            const uploadedUrls = [];
+            for (const imageUrl of imageUrls) {
+                try {
+                    let dataURL;
+                    if (imageUrl.startsWith('data:')) {
+                        // 已经是dataURL格式
+                        dataURL = imageUrl;
+                    }
+                    else {
+                        // 处理URL，下载图片并转换为dataURL
+                        const imageResponse = await fetch(imageUrl);
+                        if (!imageResponse.ok) {
+                            throw new Error(`Failed to download image: ${imageResponse.statusText}`);
+                        }
+                        const arrayBuffer = await imageResponse.arrayBuffer();
+                        const buffer = Buffer.from(arrayBuffer);
+                        const contentType = imageResponse.headers.get('content-type') || 'image/png';
+                        const base64Data = buffer.toString('base64');
+                        dataURL = `data:${contentType};base64,${base64Data}`;
+                    }
+                    // 上传到R2存储
+                    const uploadResult = await uploadImageToStorage(dataURL, {
+                        prefix: 'gemini-edit-img',
+                        metadata: {
+                            model: 'nano-banana',
+                            prompt: p.prompt.substring(0, 100), // 截取前100字符作为元数据
+                            operation: 'edit',
+                        }
+                    });
+                    uploadedUrls.push(uploadResult.url);
+                }
+                catch (error) {
+                    console.error('Failed to upload image to storage:', error);
+                    // 如果上传失败，使用原始URL作为fallback
+                    uploadedUrls.push(imageUrl);
+                }
+            }
+            return { urls: uploadedUrls, seed: undefined };
         }
         catch (err) {
             if (err?.name === 'AbortError') {

@@ -116,9 +116,9 @@ export default async function routes(app: FastifyInstance) {
         const hasImages = imageBuffers.length > 0;
         const mode = params.mode || (hasImages ? 'image-to-image' : 'text-to-image');
         
-        let requestPayload;
-        
-        if (hasImages) {
+        let requestPayload: any;
+         
+         if (hasImages) {
           // 图生图模式 - 将 Buffer 数组转换为 base64 字符串数组
           console.log('Converting imageBuffers to base64, buffer count:', imageBuffers.length);
           const imageDataUrls = imageBuffers.map((buffer, index) => {
@@ -175,8 +175,8 @@ export default async function routes(app: FastifyInstance) {
           mode: requestPayload.mode,
           n: requestPayload.n,
           size: requestPayload.size,
-          imagesCount: requestPayload.images?.length || (requestPayload.image ? 1 : 0),
-          hasMask: !!requestPayload.mask
+          imagesCount: (Array.isArray((requestPayload as any)?.images) ? (requestPayload as any).images.length : ((requestPayload as any)?.image ? 1 : 0)),
+          hasMask: !!(requestPayload as any)?.mask
         });
         
         const result = await dispatchGenerate(model, requestPayload, apiKey);

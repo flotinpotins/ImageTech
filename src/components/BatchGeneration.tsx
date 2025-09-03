@@ -289,14 +289,34 @@ export function BatchGeneration({ defaultForm, onSavePreset, onAddHistory, onUpd
       (currentModel === 'nano-banana' && currentMode === 'image-to-image')
     );
 
-    if (isImageBasedModel && batchImages.length > 0) {
-      // 如果有批量上传的图片，优先使用批量图片（按任务索引轮流分配）
-      const imageIndex = taskIndex % batchImages.length;
-      // gpt-image-1 支持最多 4 张，但批量场景为“一张参考图/任务”更直观，这里沿用单张策略
-      taskImages = [batchImages[imageIndex]];
-    } else if (isImageBasedModel && defaultForm.images && defaultForm.images.length > 0) {
-      // 回退到默认图片
-      taskImages = defaultForm.images || [];
+    // 修正：nano-banana 的图生图应支持多图，优先保留 task.parsed.images，其次使用 batchImages（全部），再次使用 defaultForm.images（全部）
+    const nanoBananaI2I = (currentModel === 'nano-banana' && currentMode === 'image-to-image');
+    if (nanoBananaI2I) {
+      // 新逻辑：合并去重，保证批量上传的多图不会被仅一张的 parsed.images 覆盖
+      const sourceImages = batchImages.length > 0 ? batchImages : (defaultForm.images || []);
+      if (sourceImages.length > 0) {
+        const existing = Array.isArray(taskImages) ? taskImages : [];
+        const merged = existing.concat(sourceImages.filter(img => !existing.includes(img)));
+        taskImages = merged;
+      }
+    } else if (isImageBasedModel) {
+      // GPT模型支持多图处理，传递所有图片
+      if (currentModel === 'gpt-image-1') {
+        // GPT模型：使用所有可用图片进行多图识别
+        if (batchImages.length > 0) {
+          taskImages = [...batchImages]; // 传递所有批量图片
+        } else if (defaultForm.images && defaultForm.images.length > 0) {
+          taskImages = [...defaultForm.images]; // 传递所有默认图片
+        }
+      } else {
+        // 其他图生图/编辑模型仍按单图分配策略
+        if (batchImages.length > 0) {
+          const imageIndex = taskIndex % batchImages.length;
+          taskImages = [batchImages[imageIndex]];
+        } else if (defaultForm.images && defaultForm.images.length > 0) {
+          taskImages = [defaultForm.images[0]];
+        }
+      }
     }
 
     // 合并默认表单和任务特定数据

@@ -1,7 +1,9 @@
-import { generateGeminiImage, editGeminiImage } from './adapters/comfly_gemini.js';
+import { generateGeminiImage } from './adapters/comfly_gemini.js';
 import formidable from 'formidable';
 import { readFileSync } from 'fs';
 import { Client } from 'pg';
+import { uploadImagesToStorage } from './storage.js';
+import { generateNanoBanana, editNanoBanana } from './adapters/nano_banana.js';
 // 数据库连接
 function createDbClient() {
     return new Client({
@@ -32,12 +34,46 @@ export async function saveTask(taskData) {
        ON CONFLICT (id) DO UPDATE SET 
        status = $5, seed = $6, error = $7, updated_at = NOW()`, [taskData.id, taskData.meta?.model, taskData.prompt, serializedParams,
             taskData.status, taskData.seed, taskData.error]);
-        // 保存图片URLs
+        // 处理图片存储
         if (taskData.outputUrls && taskData.outputUrls.length > 0) {
-            for (const url of taskData.outputUrls) {
+            // 检查是否为Base64数据URL，如果是则上传到对象存储
+            const dataUrls = taskData.outputUrls.filter((url) => url.startsWith('data:'));
+            const regularUrls = taskData.outputUrls.filter((url) => !url.startsWith('data:'));
+            let finalUrls = [...regularUrls]; // 保留非Base64的URL
+            let storageProvider = 'external'; // 外部URL的默认提供商
+            // 如果有Base64数据，尝试上传到对象存储
+            if (dataUrls.length > 0) {
+                try {
+                    console.log(`Uploading ${dataUrls.length} images to object storage for task ${taskData.id}`);
+                    const uploadResults = await uploadImagesToStorage(dataUrls, {
+                        prefix: `task_${taskData.id}`,
+                        metadata: {
+                            taskId: taskData.id,
+                            model: taskData.meta?.model || 'unknown'
+                        }
+                    });
+                    // 使用上传后的URL
+                    const uploadedUrls = uploadResults.map(result => result.url);
+                    finalUrls.push(...uploadedUrls);
+                    // 检查是否成功上传到对象存储
+                    const hasObjectStorageUrls = uploadResults.some(result => result.key && result.key.length > 0);
+                    storageProvider = hasObjectStorageUrls ? 'r2' : 'database';
+                    console.log(`Successfully processed ${uploadResults.length} images, storage provider: ${storageProvider}`);
+                }
+                catch (uploadError) {
+                    console.error(`Failed to upload images for task ${taskData.id}:`, uploadError);
+                    // 如果上传失败，回退到原始Base64 URL
+                    finalUrls.push(...dataUrls);
+                    storageProvider = 'database';
+                }
+            }
+            // 保存图片记录到数据库
+            for (let i = 0; i < finalUrls.length; i++) {
+                const url = finalUrls[i];
+                const isDataUrl = url.startsWith('data:');
                 // 从URL或参数中推断图片格式
                 let format = 'png'; // 默认格式
-                if (url.includes('data:image/')) {
+                if (isDataUrl) {
                     const mimeMatch = url.match(/data:image\/(\w+);/);
                     if (mimeMatch) {
                         format = mimeMatch[1] === 'jpeg' ? 'jpg' : mimeMatch[1];
@@ -50,8 +86,11 @@ export async function saveTask(taskData) {
                 if (!format || format.trim() === '') {
                     format = 'png';
                 }
-                await client.query(`INSERT INTO images (task_id, url, provider, format, created_at) 
-           VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT DO NOTHING`, [taskData.id, url, taskData.meta?.model || 'unknown', format]);
+                // 确定存储提供商和迁移状态
+                const currentStorageProvider = isDataUrl ? 'database' : storageProvider;
+                const isMigrated = !isDataUrl;
+                await client.query(`INSERT INTO images (task_id, url, provider, format, storage_provider, is_migrated, created_at) 
+           VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT DO NOTHING`, [taskData.id, url, taskData.meta?.model || 'unknown', format, currentStorageProvider, isMigrated]);
             }
         }
     }
@@ -70,6 +109,26 @@ export async function getTask(taskId) {
         const task = taskResult.rows[0];
         // 获取关联的图片
         const imagesResult = await client.query('SELECT url FROM images WHERE task_id = $1 ORDER BY created_at', [taskId]);
+        // 将历史上保存为 S3 API 域名的 R2 URL 动态映射到公开域名，避免 403 无法预览
+        const publicBase = process.env.R2_PUBLIC_URL || '';
+        const normalizeUrl = (url) => {
+            try {
+                if (!url || url.startsWith('data:'))
+                    return url;
+                if (!publicBase)
+                    return url;
+                if (url.startsWith(publicBase))
+                    return url;
+                const m = url.match(/^https?:\/\/[^.]+\.[^.]+\.r2\.cloudflarestorage\.com\/(.+)$/);
+                if (m && m[1]) {
+                    return `${publicBase.replace(/\/$/, '')}/${m[1]}`;
+                }
+                return url;
+            }
+            catch {
+                return url;
+            }
+        };
         // 安全解析JSON参数
         let parsedParams = {};
         if (task.params) {
@@ -91,7 +150,7 @@ export async function getTask(taskId) {
         return {
             id: task.id,
             status: task.status,
-            outputUrls: imagesResult.rows.map(row => row.url),
+            outputUrls: imagesResult.rows.map(row => normalizeUrl(row.url)),
             seed: task.seed,
             error: task.error,
             meta: parsedParams,
@@ -300,35 +359,33 @@ export async function dispatchGenerate(model, payload, apiKey) {
     if (model === "nano-banana") {
         const mode = payload?.mode ?? payload?.params?.mode ?? 'text-to-image';
         const image = payload?.image ?? payload?.params?.image;
-        console.log('nano-banana模型处理:', {
+        const images = payload?.images ?? payload?.params?.images;
+        const n = payload?.n ?? payload?.params?.n;
+        const seed = payload?.seed ?? payload?.params?.seed;
+        console.log('nano-banana模型处理(tasks.ts):', {
             mode,
             hasImage: !!image,
-            imageLength: image ? image.length : 0,
-            payloadKeys: Object.keys(payload || {}),
-            paramsKeys: Object.keys(payload?.params || {})
+            imagesLen: Array.isArray(images) ? images.length : 0,
         });
         if (mode === 'image-to-image') {
-            if (!image) {
+            if (!image && (!images || images.length === 0)) {
                 console.error('NANO_BANANA_MISSING_IMAGE - payload:', JSON.stringify(payload, null, 2));
                 throw new Error('NANO_BANANA_MISSING_IMAGE');
             }
-            console.log('调用editGeminiImage，图片长度:', image.length);
-            return editGeminiImage({
+            return editNanoBanana({
                 prompt: payload.prompt,
-                image: image,
-                size: payload?.size ?? payload?.params?.size,
-                n: payload?.n ?? payload?.params?.n,
-                quality: payload?.quality ?? payload?.params?.quality,
-                response_format: payload?.response_format ?? payload?.params?.response_format,
+                image,
+                images,
+                n,
+                seed,
             }, apiKey);
         }
         else {
-            return generateGeminiImage({
+            return generateNanoBanana({
                 prompt: payload.prompt,
-                size: payload?.size ?? payload?.params?.size,
-                n: payload?.n ?? payload?.params?.n,
-                quality: payload?.quality ?? payload?.params?.quality,
-                response_format: payload?.response_format ?? payload?.params?.response_format,
+                images,
+                n,
+                seed,
             }, apiKey);
         }
     }
@@ -394,16 +451,45 @@ export default async function handler(req, res) {
                         }
                     });
                     console.log('Parsed body.params:', body.params);
-                    // Handle uploaded image file
+                    // Handle uploaded image files - support both 'image' and 'images' field names
+                    const imageFiles = [];
+                    // Check for 'images' field (multiple files)
+                    if (files.images) {
+                        const imagesArray = Array.isArray(files.images) ? files.images : [files.images];
+                        imageFiles.push(...imagesArray);
+                    }
+                    // Check for 'image' field (single file) - for backward compatibility
                     if (files.image) {
-                        const imageFile = Array.isArray(files.image) ? files.image[0] : files.image;
-                        if (imageFile && imageFile.filepath) {
-                            // Convert uploaded file to data URL
-                            const mimeType = imageFile.mimetype || 'image/png';
-                            const dataURL = fileToDataURL(imageFile.filepath, mimeType);
-                            body.params.image = dataURL;
-                            console.log('Image converted to data URL, size:', dataURL.length);
+                        const imageArray = Array.isArray(files.image) ? files.image : [files.image];
+                        imageFiles.push(...imageArray);
+                    }
+                    if (imageFiles.length > 0) {
+                        console.log(`Processing ${imageFiles.length} uploaded image(s)`);
+                        const imageDataUrls = imageFiles.map((imageFile, index) => {
+                            if (imageFile && imageFile.filepath) {
+                                const mimeType = imageFile.mimetype || 'image/png';
+                                const dataURL = fileToDataURL(imageFile.filepath, mimeType);
+                                console.log(`Image ${index + 1} converted to data URL, size:`, dataURL.length);
+                                return dataURL;
+                            }
+                            return null;
+                        }).filter(Boolean);
+                        // Store images in the same format as backend server
+                        if (imageDataUrls.length === 1) {
+                            // Single image - store as both 'image' and 'images' for compatibility
+                            body.params.image = imageDataUrls[0];
+                            body.params.images = imageDataUrls;
                         }
+                        else if (imageDataUrls.length > 1) {
+                            // Multiple images - store as 'images' array and first image as 'image'
+                            body.params.images = imageDataUrls;
+                            body.params.image = imageDataUrls[0];
+                        }
+                        console.log('Images processed:', {
+                            imageCount: imageDataUrls.length,
+                            hasImage: !!body.params.image,
+                            hasImages: !!body.params.images
+                        });
                     }
                 }
                 catch (parseError) {

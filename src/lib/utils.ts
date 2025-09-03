@@ -242,8 +242,9 @@ export async function buildTaskRequest(form: SingleGenerationForm): Promise<Crea
       
       // 只有在图生图模式下才传递图片
       if (mode === 'image-to-image' && images && images.length > 0) {
-        // 支持多图参考：如果只有一张图片，传递字符串；多张图片传递数组
-        requestData.image = images.length === 1 ? images[0] : images;
+        // 多图使用 images 数组，同时保留 image 的第一张用于兼容旧逻辑
+        requestData.images = images;
+        requestData.image = images[0];
       }
       
       params = requestData;
@@ -413,7 +414,7 @@ export async function createTask(
   
   // 检查是否需要使用 FormData
   const needsFormData = (
-    (request.model === 'nano-banana' && request.params?.mode === 'image-to-image' && request.params?.image) ||
+    (request.model === 'nano-banana' && request.params?.mode === 'image-to-image' && ((request.params?.images && request.params.images.length > 0) || request.params?.image)) ||
     (request.model === 'gpt-image-1' && request.params?.images && request.params.images.length > 0)
   );
 
@@ -458,29 +459,23 @@ export async function createTask(
           // nano-banana 模型处理
           formData.append('mode', 'image-to-image');
           
-          const imageData = request.params?.image;
-          if (imageData) {
+          // 统一从 images/image 收集为数组
+          const imageArray = Array.isArray(request.params?.images)
+            ? request.params.images
+            : (Array.isArray(request.params?.image)
+                ? request.params.image
+                : (request.params?.image ? [request.params.image] : []));
+
+          if (imageArray.length > 0) {
             const blobStartTime = Date.now();
-            
-            if (Array.isArray(imageData)) {
-              // 多图处理
-              imageData.forEach((imageUrl, index) => {
-                const imageBlob = dataURLtoBlob(imageUrl);
-                formData.append('images', imageBlob, `upload_${index}.png`);
-              });
-              console.log('🖼️ Multiple images processing completed:', {
-                imageCount: imageData.length,
-                processingTime: Date.now() - blobStartTime + 'ms'
-              });
-            } else {
-              // 单图处理
-              const imageBlob = dataURLtoBlob(imageData);
-              formData.append('images', imageBlob, 'upload.png');
-              console.log('🖼️ Single image processing completed:', {
-                blobSize: imageBlob.size,
-                processingTime: Date.now() - blobStartTime + 'ms'
-              });
-            }
+            imageArray.forEach((imageUrl, index) => {
+              const imageBlob = dataURLtoBlob(imageUrl);
+              formData.append('images', imageBlob, `upload_${index}.png`);
+            });
+            console.log('🖼️ Multiple images processing completed:', {
+              imageCount: imageArray.length,
+              processingTime: Date.now() - blobStartTime + 'ms'
+            });
           } else {
             throw new Error('Image is required for image-to-image generation.');
           }
@@ -490,10 +485,10 @@ export async function createTask(
           if (imageData && imageData.length > 0) {
             const blobStartTime = Date.now();
             
-            // GPT 支持多图上传
+            // GPT 支持多图上传，使用 'images' 字段名与后端保持一致
             imageData.forEach((imageUrl: string, index: number) => {
               const imageBlob = dataURLtoBlob(imageUrl);
-              formData.append('image', imageBlob, `image_${index}.png`);
+              formData.append('images', imageBlob, `image_${index}.png`);
             });
             
             console.log('🖼️ GPT images processing completed:', {

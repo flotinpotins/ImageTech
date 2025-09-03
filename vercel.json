@@ -10,7 +10,8 @@
     "TOKEN_API_BASE_URL": "https://ai.comfly.chat",
     "PROVIDER_BASE_URL": "https://ai.comfly.chat",
     "CRON_SECRET": "cleanup-secret-2024",
-    "MIGRATION_SECRET": "migrate_2025"
+    "MIGRATION_SECRET": "migrate_2025",
+    "STORAGE_ENABLED": "false"
   },
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
